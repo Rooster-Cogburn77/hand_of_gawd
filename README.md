@@ -14,6 +14,7 @@ This repository currently contains the Goal 1 browser substrate:
 - Browser DOM/WebDriver-level execution with target identity re-checks.
 - Deterministic result verification.
 - JSONL trace recording with redaction enabled by default.
+- A public synthetic Selenium smoke that proves the Goal 1 loop end to end.
 
 This is not yet a production browser agent, not a password manager, and not an unrestricted desktop controller. Native desktop automation, OS pointer control, planner integration, credential handling, and approval UX are separate future gates.
 
@@ -38,3 +39,21 @@ The planner's `risk_class` is treated as advisory metadata only. The policy gate
 This is an early public scaffold. The API may change while the harness is being shaped.
 
 License has not been selected yet.
+
+## Selenium Smoke
+
+The public smoke fixture lives at `examples/safe_toggle/index.html`.
+
+It proves the browser loop against a local synthetic page:
+
+```powershell
+python scripts/hog_selenium_smoke.py --output-dir runtime/hog_selenium_smoke
+```
+
+If Firefox or geckodriver are not discoverable, pass them explicitly:
+
+```powershell
+python scripts/hog_selenium_smoke.py --firefox-binary /usr/bin/firefox --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
+```
+
+The runner writes `before.png`, `after.png`, and `hog_trace_selenium_smoke.jsonl`. A passing run means the fixture was observed, the Arm button proposal passed the deterministic gate, Selenium acted through the browser adapter, the page changed to `ARMED`, and the deterministic verifier passed.

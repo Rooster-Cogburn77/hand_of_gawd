@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>hand_of_gawd safe toggle fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: #f5f7fa;
+        color: #111827;
+      }
+
+      main {
+        padding: 80px 96px;
+      }
+
+      h1 {
+        margin: 0 0 32px;
+        font-size: 32px;
+        font-weight: 700;
+      }
+
+      #state {
+        margin-bottom: 28px;
+        font-size: 40px;
+        font-weight: 700;
+      }
+
+      #arm-button {
+        width: 180px;
+        height: 72px;
+        border: 0;
+        border-radius: 6px;
+        background: #2563eb;
+        color: white;
+        font-size: 28px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      #arm-button[aria-pressed="true"] {
+        background: #047857;
+      }
+    </style>
+  </head>
+  <body data-state="safe">
+    <main>
+      <h1>Synthetic Safe Toggle</h1>
+      <div id="state" role="status" aria-live="polite">SAFE</div>
+      <button
+        id="arm-button"
+        type="button"
+        aria-label="Arm fixture"
+        aria-pressed="false"
+        onclick="document.body.dataset.state='armed'; document.getElementById('state').textContent='ARMED'; this.textContent='Armed'; this.setAttribute('aria-pressed', 'true');"
+      >Arm</button>
+    </main>
+  </body>
+</html>
