@@ -57,8 +57,11 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
     assert completed.returncode == 0, completed.stderr + completed.stdout
     result = json.loads(completed.stdout)
     assert result["passed"] is True
+    assert result["fixture_url"].startswith("http://127.0.0.1:")
+    assert result["allow_url_prefix"].startswith("http://127.0.0.1:")
     assert result["target_ref"]
     assert result["gate"]["allowed"] is True
+    assert result["gate"]["checks"]["current_url_allowed"] is True
     assert result["execution"]["ok"] is True
     assert result["verification"]["passed"] is True
     assert Path(result["trace"]).exists()
