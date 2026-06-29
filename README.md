@@ -70,7 +70,7 @@ On snap-based Firefox installs, do not pass `/usr/bin/firefox` as `--firefox-bin
 
 ## Current Proof
 
-The Selenium smoke has passed the full `--scenario all` proof on a real Firefox/geckodriver environment at repo commit `e7e2e45`.
+The Selenium smoke has passed the full `--scenario all` proof on a real Firefox/geckodriver environment at repo commit `88044a9`.
 
 Sanitized result:
 
