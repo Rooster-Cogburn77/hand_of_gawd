@@ -1,12 +1,15 @@
 """Public package root for hand_of_gawd."""
 
 from hand_of_gawd.approval import (
+    ApprovalRecord,
     ApprovalRequest,
     ApprovalResponse,
+    ApprovalStore,
     approval_response_for_mode,
     build_approval_request,
     format_approval_request,
     gate_config_with_approval,
+    gate_config_with_approval_store,
     prompt_for_operator_approval,
 )
 from hand_of_gawd.contracts import (
@@ -26,8 +29,10 @@ from hand_of_gawd.verifier import AssertionCheck, VerificationResult, verify_exp
 __all__ = [
     "ActionProposal",
     "ActionExecutionResult",
+    "ApprovalRecord",
     "ApprovalRequest",
     "ApprovalResponse",
+    "ApprovalStore",
     "AssertionCheck",
     "ExpectedAssertion",
     "ExpectedResult",
@@ -45,6 +50,7 @@ __all__ = [
     "evaluate_policy_gate",
     "format_approval_request",
     "gate_config_with_approval",
+    "gate_config_with_approval_store",
     "normalize_action_proposal",
     "prompt_for_operator_approval",
     "redact_trace_payload",

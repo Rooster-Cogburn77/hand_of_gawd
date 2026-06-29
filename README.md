@@ -14,9 +14,10 @@ This repository currently contains the Goal 1 browser substrate:
 - Browser DOM/WebDriver-level execution with target identity re-checks.
 - Deterministic result verification.
 - JSONL trace recording with redaction enabled by default.
+- Local JSONL approval storage for exact stable action keys.
 - A public synthetic Selenium smoke that exercises the Goal 1 loop end to end.
 
-This is not yet a production browser agent, not a password manager, and not an unrestricted desktop controller. Native desktop automation, OS pointer control, planner integration, credential handling, persistent approval storage, and production approval UX are separate future gates.
+This is not yet a production browser agent, not a password manager, and not an unrestricted desktop controller. Native desktop automation, OS pointer control, planner integration, credential handling, persistent approval policy, and production approval UX are separate future gates.
 
 ## Safety Model
 
@@ -35,6 +36,10 @@ Each step follows this shape:
 The planner's `risk_class` is treated as advisory metadata only. The policy gate computes its own decision from URL allowlists, action type, target identity, form metadata, cross-origin navigation, sensitive fields, and approval-required keywords.
 
 When the gate returns a liftable `approval_required`, an operator can approve one exact stable action key. That key is derived from action type, a hash of the proposed action value when present, current URL, and stable target identity. Approval does not bypass blocked checks such as stale snapshots, missing targets, disabled targets, non-clickable targets, or sensitive fields.
+
+Local approval storage is append-only JSONL. Approved keys can be loaded back into the gate, but denials are recorded too, and the latest record for a key wins. A stored approval is an indefinite grant for that exact action key until a later denial record or store deletion revokes it. The store grants only exact key matches; it does not override the deterministic gate checks.
+
+The approval store is a local trust anchor. Anyone who can write the store can add or revoke exact action-key approvals, so the store belongs in an operator-controlled local path, not a synced, shared, or world-writable location. Persisted approval records reuse trace-style redaction for visible labels, typed values, placeholders, and expected assertion values.
 
 ## Proof Status
 
@@ -70,7 +75,13 @@ Use the human approval prompt for the approval-proceed path:
 python scripts/hog_selenium_smoke.py --scenario approval-proceed --approval-mode prompt --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke_prompt
 ```
 
-The prompt shows the gate reason, URL, goal, action type, stable target identity, expected deterministic result, and approval key. The operator must type `YES`; anything else leaves the action unapproved. Approval-proceed traces include `approval_request` and `approval_response` events before the final `policy_gate`, `action_execution`, and `step_result` events. Trace redaction hides visible element labels and action value previews by default.
+Persist approval records to a local JSONL store:
+
+```bash
+python scripts/hog_selenium_smoke.py --scenario approval-proceed --approval-mode prompt --approval-store runtime/hog_approvals.jsonl --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke_prompt
+```
+
+The prompt shows the gate reason, URL, goal, action type, stable target identity, expected deterministic result, and approval key. The operator must type `YES`; anything else leaves the action unapproved. Approval-proceed traces include `approval_request` and `approval_response` events before the final `policy_gate`, `action_execution`, and `step_result` events. When `--approval-store` is used, the runner also writes an `approval_record` event and appends the same record to the JSONL store. Trace redaction hides visible element labels and action value previews by default.
 
 The runner writes `before.png`, `after.png`, and `hog_trace_selenium_<scenario>.jsonl`. The integration test skips when Selenium, Firefox, or geckodriver are unavailable; the real evidence artifact is the runner output from an environment with those tools installed.
 

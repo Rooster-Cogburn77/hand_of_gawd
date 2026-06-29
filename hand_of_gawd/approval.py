@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from hand_of_gawd.contracts import ActionProposal
 from hand_of_gawd.policy import GateConfig, GateDecision, compute_approval_key
+from hand_of_gawd.trace import redact_trace_payload
 
 
 @dataclass(frozen=True)
@@ -56,6 +59,104 @@ class ApprovalResponse:
             "mode": self.mode,
             "reason": self.reason,
         }
+
+
+@dataclass(frozen=True)
+class ApprovalRecord:
+    """Append-only local audit record for one approval request/response pair."""
+
+    created_at: str
+    approval_key: str
+    approved: bool
+    request: dict[str, Any]
+    response: dict[str, Any]
+
+    @classmethod
+    def from_request_response(
+        cls,
+        request: ApprovalRequest,
+        response: ApprovalResponse,
+        *,
+        created_at: str | None = None,
+    ) -> "ApprovalRecord":
+        timestamp = created_at or datetime.now(UTC).isoformat()
+        return cls(
+            created_at=timestamp,
+            approval_key=request.approval_key,
+            approved=response.approved and response.approval_key == request.approval_key,
+            request=redact_trace_payload(request.to_dict()),
+            response=redact_trace_payload(response.to_dict()),
+        )
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ApprovalRecord":
+        return cls(
+            created_at=str(payload.get("created_at") or ""),
+            approval_key=str(payload.get("approval_key") or ""),
+            approved=bool(payload.get("approved")),
+            request=dict(payload.get("request") or {}),
+            response=dict(payload.get("response") or {}),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "created_at": self.created_at,
+            "approval_key": self.approval_key,
+            "approved": self.approved,
+            "request": self.request,
+            "response": self.response,
+        }
+
+
+class ApprovalStore:
+    """Local JSONL store for exact stable action approvals."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+
+    def append(
+        self,
+        request: ApprovalRequest,
+        response: ApprovalResponse,
+        *,
+        created_at: str | None = None,
+    ) -> ApprovalRecord:
+        record = ApprovalRecord.from_request_response(
+            request,
+            response,
+            created_at=created_at,
+        )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record.to_dict(), sort_keys=True, default=str))
+            handle.write("\n")
+        return record
+
+    def records(self) -> tuple[ApprovalRecord, ...]:
+        if not self.path.exists():
+            return ()
+
+        records: list[ApprovalRecord] = []
+        with self.path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    payload = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"invalid approval store JSON on line {line_number}: {exc.msg}"
+                    ) from exc
+                records.append(ApprovalRecord.from_dict(payload))
+        return tuple(records)
+
+    def approved_keys(self) -> tuple[str, ...]:
+        latest_by_key: dict[str, bool] = {}
+        for record in self.records():
+            if record.approval_key:
+                latest_by_key[record.approval_key] = record.approved
+        return tuple(key for key, approved in latest_by_key.items() if approved)
 
 
 def build_approval_request(
@@ -216,6 +317,16 @@ def gate_config_with_approval(
     if not response.approved or not response.approval_key:
         return config
     keys = tuple(dict.fromkeys((*config.approved_action_keys, response.approval_key)))
+    return replace(config, approved_action_keys=keys)
+
+
+def gate_config_with_approval_store(
+    config: GateConfig,
+    store: ApprovalStore,
+) -> GateConfig:
+    """Return a config with currently approved exact keys loaded from a store."""
+
+    keys = tuple(dict.fromkeys((*config.approved_action_keys, *store.approved_keys())))
     return replace(config, approved_action_keys=keys)
 
 

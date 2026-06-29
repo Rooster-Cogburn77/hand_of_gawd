@@ -1,8 +1,10 @@
 from hand_of_gawd.approval import (
+    ApprovalStore,
     approval_response_for_mode,
     build_approval_request,
     format_approval_request,
     gate_config_with_approval,
+    gate_config_with_approval_store,
     prompt_for_operator_approval,
 )
 from hand_of_gawd.policy import GateConfig, evaluate_policy_gate
@@ -181,3 +183,122 @@ def test_approved_response_lifts_only_the_exact_stable_key():
     assert changed_decision.allowed is False
     assert changed_decision.gate_risk_class == "approval_required"
     assert changed_decision.checks["operator_approved_action"] is False
+
+
+def test_approval_store_persists_approved_exact_keys(tmp_path):
+    snapshot = _snapshot()
+    proposal = _proposal()
+    base_config = GateConfig(allowed_url_prefixes=("https://safe.example/",))
+    gate = evaluate_policy_gate(proposal, snapshot, base_config)
+    request = build_approval_request(proposal, snapshot, gate)
+    response = approval_response_for_mode(request, "auto-approve")
+
+    store = ApprovalStore(tmp_path / "approvals.jsonl")
+    record = store.append(request, response, created_at="2026-06-28T00:00:00+00:00")
+    loaded_config = gate_config_with_approval_store(base_config, store)
+    decision = evaluate_policy_gate(proposal, snapshot, loaded_config)
+
+    assert record.approved is True
+    assert record.approval_key == request.approval_key
+    assert store.approved_keys() == (request.approval_key,)
+    assert decision.allowed is True
+    assert decision.gate_risk_class == "approval_granted"
+
+
+def test_approval_store_redacts_persisted_request_payload(tmp_path):
+    snapshot = _snapshot()
+    proposal = _proposal(value="person@example.test")
+    base_config = GateConfig(allowed_url_prefixes=("https://safe.example/",))
+    gate = evaluate_policy_gate(proposal, snapshot, base_config)
+    request = build_approval_request(proposal, snapshot, gate)
+    response = approval_response_for_mode(request, "auto-approve")
+    store_path = tmp_path / "approvals.jsonl"
+
+    record = ApprovalStore(store_path).append(
+        request,
+        response,
+        created_at="2026-06-28T00:00:00+00:00",
+    )
+    raw = store_path.read_text(encoding="utf-8")
+
+    assert record.request["target_identity"]["name"] == "[REDACTED]"
+    assert record.request["target_identity"]["text"] == "[REDACTED]"
+    assert record.request["action_value_preview"] == "[REDACTED]"
+    assert record.request["expected_result"]["assertions"][0]["value"] == "[REDACTED]"
+    assert "person@example.test" not in raw
+    assert "Submit fixture" not in raw
+    assert "SUBMITTED" not in raw
+
+
+def test_approval_store_denials_do_not_grant_keys(tmp_path):
+    snapshot = _snapshot()
+    proposal = _proposal()
+    base_config = GateConfig(allowed_url_prefixes=("https://safe.example/",))
+    gate = evaluate_policy_gate(proposal, snapshot, base_config)
+    request = build_approval_request(proposal, snapshot, gate)
+
+    store = ApprovalStore(tmp_path / "approvals.jsonl")
+    store.append(
+        request,
+        approval_response_for_mode(request, "deny"),
+        created_at="2026-06-28T00:00:00+00:00",
+    )
+    loaded_config = gate_config_with_approval_store(base_config, store)
+    decision = evaluate_policy_gate(proposal, snapshot, loaded_config)
+
+    assert store.approved_keys() == ()
+    assert decision.allowed is False
+    assert decision.gate_risk_class == "approval_required"
+    assert decision.checks["operator_approved_action"] is False
+
+
+def test_approval_store_lifts_only_exact_value_bound_key(tmp_path):
+    snapshot = _snapshot()
+    approved_proposal = _proposal(value="approved text")
+    changed_proposal = _proposal(value="changed text")
+    base_config = GateConfig(allowed_url_prefixes=("https://safe.example/",))
+    gate = evaluate_policy_gate(approved_proposal, snapshot, base_config)
+    request = build_approval_request(approved_proposal, snapshot, gate)
+    store = ApprovalStore(tmp_path / "approvals.jsonl")
+    store.append(
+        request,
+        approval_response_for_mode(request, "auto-approve"),
+        created_at="2026-06-28T00:00:00+00:00",
+    )
+
+    loaded_config = gate_config_with_approval_store(base_config, store)
+    approved_decision = evaluate_policy_gate(approved_proposal, snapshot, loaded_config)
+    changed_decision = evaluate_policy_gate(changed_proposal, snapshot, loaded_config)
+
+    assert approved_decision.allowed is True
+    assert approved_decision.gate_risk_class == "approval_granted"
+    assert changed_decision.allowed is False
+    assert changed_decision.gate_risk_class == "approval_required"
+    assert changed_decision.checks["operator_approved_action"] is False
+
+
+def test_approval_store_latest_record_wins(tmp_path):
+    snapshot = _snapshot()
+    proposal = _proposal()
+    base_config = GateConfig(allowed_url_prefixes=("https://safe.example/",))
+    gate = evaluate_policy_gate(proposal, snapshot, base_config)
+    request = build_approval_request(proposal, snapshot, gate)
+    store = ApprovalStore(tmp_path / "approvals.jsonl")
+
+    store.append(
+        request,
+        approval_response_for_mode(request, "auto-approve"),
+        created_at="2026-06-28T00:00:00+00:00",
+    )
+    store.append(
+        request,
+        approval_response_for_mode(request, "deny"),
+        created_at="2026-06-28T00:01:00+00:00",
+    )
+
+    loaded_config = gate_config_with_approval_store(base_config, store)
+    decision = evaluate_policy_gate(proposal, snapshot, loaded_config)
+
+    assert store.approved_keys() == ()
+    assert decision.allowed is False
+    assert decision.gate_risk_class == "approval_required"

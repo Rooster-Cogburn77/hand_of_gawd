@@ -22,9 +22,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from hand_of_gawd.approval import (
+    ApprovalResponse,
+    ApprovalStore,
     approval_response_for_mode,
     build_approval_request,
     gate_config_with_approval,
+    gate_config_with_approval_store,
 )
 from hand_of_gawd.loop import run_verified_step
 from hand_of_gawd.policy import GateConfig, evaluate_policy_gate
@@ -65,6 +68,10 @@ def main() -> int:
         default="auto-approve",
         help="approval source for the approval-proceed scenario",
     )
+    parser.add_argument(
+        "--approval-store",
+        help="optional local JSONL approval store for exact stable action keys",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -82,6 +89,7 @@ def main() -> int:
             output_dir,
             scenario=args.scenario,
             approval_mode=args.approval_mode,
+            approval_store=Path(args.approval_store) if args.approval_store else None,
         )
     finally:
         driver.quit()
@@ -97,6 +105,7 @@ def run_smoke(
     *,
     scenario: str = "safe",
     approval_mode: str = "auto-approve",
+    approval_store: Path | None = None,
 ) -> dict[str, Any]:
     """Run the public safe-toggle proof with an already-open Selenium driver."""
 
@@ -108,6 +117,7 @@ def run_smoke(
                 output_dir / "safe",
                 scenario="safe",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -115,6 +125,7 @@ def run_smoke(
                 output_dir / "unsafe-refusal",
                 scenario="unsafe-refusal",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -122,6 +133,7 @@ def run_smoke(
                 output_dir / "approval-proceed",
                 scenario="approval-proceed",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -129,6 +141,7 @@ def run_smoke(
                 output_dir / "stale-state",
                 scenario="stale-state",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -136,6 +149,7 @@ def run_smoke(
                 output_dir / "identity-mismatch",
                 scenario="identity-mismatch",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -143,6 +157,7 @@ def run_smoke(
                 output_dir / "iframe-action",
                 scenario="iframe-action",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -150,6 +165,7 @@ def run_smoke(
                 output_dir / "shadow-action",
                 scenario="shadow-action",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -157,6 +173,7 @@ def run_smoke(
                 output_dir / "varied-snapshot",
                 scenario="varied-snapshot",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
             run_smoke(
                 driver,
@@ -164,6 +181,7 @@ def run_smoke(
                 output_dir / "blocked-iframe-snapshot",
                 scenario="blocked-iframe-snapshot",
                 approval_mode=approval_mode,
+                approval_store=approval_store,
             ),
         ]
         return {
@@ -187,6 +205,9 @@ def run_smoke(
 
         trace_path = output_dir / f"hog_trace_selenium_{scenario}.jsonl"
         trace = TraceRecorder(trace_path)
+        store = ApprovalStore(approval_store) if approval_store else None
+        approval_response = None
+        approval_record = None
 
         if scenario == "safe":
             target_ref = _find_target_ref(before, target_id="arm-button")
@@ -227,15 +248,31 @@ def run_smoke(
                 ],
             )
             gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+            if store is not None:
+                gate_config = gate_config_with_approval_store(gate_config, store)
             initial_gate = evaluate_policy_gate(proposal, before, gate_config)
-            approval_request = build_approval_request(proposal, before, initial_gate)
-            approval_response = approval_response_for_mode(
-                approval_request,
-                approval_mode,
-            )
-            trace.record("approval_request", approval_request.to_dict())
-            trace.record("approval_response", approval_response.to_dict())
-            gate_config = gate_config_with_approval(gate_config, approval_response)
+            if initial_gate.allowed and initial_gate.gate_risk_class == "approval_granted":
+                approval_response = ApprovalResponse(
+                    approved=True,
+                    approval_key=initial_gate.checks.get("target_approval_key"),
+                    mode="store",
+                    reason="approved by local approval store",
+                )
+                trace.record("approval_response", approval_response.to_dict())
+            else:
+                approval_request = build_approval_request(proposal, before, initial_gate)
+                approval_response = approval_response_for_mode(
+                    approval_request,
+                    approval_mode,
+                )
+                trace.record("approval_request", approval_request.to_dict())
+                trace.record("approval_response", approval_response.to_dict())
+                if store is not None:
+                    approval_record = store.append(approval_request, approval_response)
+                    trace.record("approval_record", approval_record.to_dict())
+                    gate_config = gate_config_with_approval_store(gate_config, store)
+                else:
+                    gate_config = gate_config_with_approval(gate_config, approval_response)
         elif scenario == "stale-state":
             target_ref = _find_target_ref(before, target_id="arm-button")
             proposal = _proposal(
@@ -332,6 +369,8 @@ def run_smoke(
                 "verification": None,
                 "after_snapshot_id": None,
                 "approval": None,
+                "approval_store": str(approval_store) if approval_store else None,
+                "approval_record": None,
             }
         else:
             raise ValueError(f"unsupported scenario: {scenario}")
@@ -362,6 +401,8 @@ def run_smoke(
             "verification": step.verification.to_dict() if step.verification else None,
             "after_snapshot_id": step.after_snapshot.get("snapshot_id") if step.after_snapshot else None,
             "approval": approval_response.to_dict() if scenario == "approval-proceed" else None,
+            "approval_store": str(approval_store) if approval_store else None,
+            "approval_record": approval_record.to_dict() if approval_record else None,
         }
 
 
