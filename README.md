@@ -38,20 +38,16 @@ When the gate returns a liftable `approval_required`, an operator can approve on
 
 ## Proof Status
 
-**Live-proven** on a real Firefox/geckodriver environment (synthetic, browser-Linux; commits `88044a9` and `6cf8684`):
+**Live-proven** on a real Firefox/geckodriver environment (synthetic, browser-Linux; commits `88044a9`, `6cf8684`, and `9593b74`):
 
 - `safe` - a harmless control is allowed, identity-checked, executed, and verified.
 - `unsafe-refusal` - a form-submit target is refused before execution (`approval_required`, `operator_approved_action: false`, trace `policy_gate` -> `step_result`).
 - `approval-proceed` - the same target proceeds only with `operator_approved_action: true` from an external stable action key, then verifies.
 - `stale-state` - a proposal with stale `state_seen` is blocked before execution.
 - `identity-mismatch` - a page shift between snapshot and execution is refused by the live identity re-check before clicking the impostor.
-- `varied-snapshot` - a second fixture is observed and records iframe/shadow-DOM coverage gaps instead of pretending those subtrees were covered.
-
-**Committed and unit-covered, not yet live-proven** (pending a Selenium rerun on a browser-equipped machine at or after commit `9593b74`):
-
 - `iframe-action` - same-origin iframe control: observe, gate, identity-check, click, verify.
 - `shadow-action` - open-shadow-root control: observe, gate, identity-check, click, verify.
-- Updated `varied-snapshot` - same-origin iframe and open-shadow-root controls are traversed and included in the snapshot.
+- `varied-snapshot` - same-origin iframe and open-shadow-root controls are traversed and included in the snapshot.
 - `blocked-iframe-snapshot` - an opaque sandboxed iframe must report `iframes_not_traversed`, proving blocked subtrees are warned about instead of silently claimed.
 
 Approval keys are `hog-approval-v1:<sha256>` values derived from action type, a hash of the proposed action value when present, current URL, and stable target identity - not ephemeral snapshot refs such as `e5`.
