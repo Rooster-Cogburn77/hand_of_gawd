@@ -13,6 +13,16 @@ from typing import Any, Mapping
 
 SNAPSHOT_JS = r"""
 const snapshotId = arguments[0];
+const TOP_DOCUMENT = document;
+const warnings = [];
+const seenWarnings = new Set();
+
+function addWarning(warning) {
+  if (!seenWarnings.has(warning)) {
+    warnings.push(warning);
+    seenWarnings.add(warning);
+  }
+}
 
 function textOf(node) {
   if (!node) return "";
@@ -28,14 +38,21 @@ function associatedLabel(el) {
   return textOf(parentLabel);
 }
 
-function ariaName(el) {
+function getById(context, id) {
+  if (context.root && typeof context.root.getElementById === "function") {
+    return context.root.getElementById(id);
+  }
+  return context.doc.getElementById(id);
+}
+
+function ariaName(el, context) {
   const direct = el.getAttribute("aria-label");
   if (direct) return direct.trim();
   const labelledBy = el.getAttribute("aria-labelledby");
   if (!labelledBy) return "";
   return labelledBy
     .split(/\s+/)
-    .map((id) => document.getElementById(id))
+    .map((id) => getById(context, id))
     .map(textOf)
     .filter(Boolean)
     .join(" ");
@@ -51,13 +68,50 @@ function isVisible(el, rect, style) {
   );
 }
 
-function topmostAtCenter(el, rect) {
-  const x = rect.left + rect.width / 2;
-  const y = rect.top + rect.height / 2;
-  if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) {
+function fallbackElementFromPoint(root, x, y) {
+  if (!root || typeof root.querySelectorAll !== "function") {
+    return null;
+  }
+  const hits = Array.from(root.querySelectorAll("*")).filter((el) => {
+    const rect = el.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  });
+  return hits.length ? hits[hits.length - 1] : null;
+}
+
+function rootElementFromPoint(root, x, y) {
+  if (!root) return null;
+  if (typeof root.elementFromPoint === "function") {
+    return root.elementFromPoint(x, y);
+  }
+  return fallbackElementFromPoint(root, x, y);
+}
+
+function deepElementFromPoint(root, x, y) {
+  let top = rootElementFromPoint(root, x, y);
+  while (top && top.shadowRoot) {
+    const shadowTop = rootElementFromPoint(top.shadowRoot, x, y);
+    if (!shadowTop || shadowTop === top) break;
+    top = shadowTop;
+  }
+  return top;
+}
+
+function topmostAtCenter(el, rect, context) {
+  const localX = rect.left + rect.width / 2;
+  const localY = rect.top + rect.height / 2;
+  const topX = context.offsetX + localX;
+  const topY = context.offsetY + localY;
+  if (topX < 0 || topY < 0 || topX > window.innerWidth || topY > window.innerHeight) {
     return false;
   }
-  const top = document.elementFromPoint(x, y);
+  if (context.frameElement) {
+    const frameTop = TOP_DOCUMENT.elementFromPoint(topX, topY);
+    if (frameTop !== context.frameElement && !(context.frameElement.contains(frameTop))) {
+      return false;
+    }
+  }
+  const top = deepElementFromPoint(context.root, localX, localY);
   return top === el || (top && el.contains(top));
 }
 
@@ -127,75 +181,145 @@ const selectors = [
   "[tabindex]"
 ].join(",");
 
-const candidates = Array.from(new Set(Array.from(document.querySelectorAll(selectors))));
-const activeElement = document.activeElement;
-let focusRef = null;
+function collectContexts() {
+  const contexts = [];
+  const seenRoots = new Set();
 
-const elements = [];
-for (const el of candidates) {
-  const rect = el.getBoundingClientRect();
-  const style = window.getComputedStyle(el);
-  const visible = isVisible(el, rect, style);
-  if (!visible && !el.matches("input,textarea,select,[role],[aria-label],[aria-labelledby]")) {
-    continue;
+  function addContext({root, doc, kind, offsetX = 0, offsetY = 0, frameElement = null, frameId = null, shadowHostId = null}) {
+    if (!root || seenRoots.has(root)) return;
+    seenRoots.add(root);
+    const context = {root, doc, kind, offsetX, offsetY, frameElement, frameId, shadowHostId};
+    contexts.push(context);
+
+    if (typeof root.querySelectorAll !== "function") return;
+
+    for (const el of Array.from(root.querySelectorAll("*"))) {
+      if (el.shadowRoot) {
+        addContext({
+          root: el.shadowRoot,
+          doc,
+          kind: "shadow",
+          offsetX,
+          offsetY,
+          frameElement,
+          frameId,
+          shadowHostId: el.id || null
+        });
+      }
+    }
+
+    for (const iframe of Array.from(root.querySelectorAll("iframe"))) {
+      let childDoc = null;
+      try {
+        childDoc = iframe.contentDocument;
+      } catch (err) {
+        addWarning("iframes_not_traversed");
+      }
+      if (!childDoc) {
+        addWarning("iframes_not_traversed");
+        continue;
+      }
+      const rect = iframe.getBoundingClientRect();
+      addContext({
+        root: childDoc,
+        doc: childDoc,
+        kind: "iframe",
+        offsetX: offsetX + rect.left,
+        offsetY: offsetY + rect.top,
+        frameElement: iframe,
+        frameId: iframe.id || null
+      });
+    }
   }
 
-  const tag = el.tagName.toLowerCase();
-  const type = el.getAttribute("type") || null;
-  const role = el.getAttribute("role") || (
-    tag === "button" ? "button" :
-    tag === "a" ? "link" :
-    tag === "select" ? "combobox" :
-    tag === "textarea" ? "textbox" :
-    tag === "input" ? (type === "checkbox" ? "checkbox" : type === "radio" ? "radio" : "textbox") :
-    null
-  );
-  const name = ariaName(el) || associatedLabel(el) || el.getAttribute("title") || el.getAttribute("placeholder") || textOf(el);
-  const disabled = Boolean(el.disabled || el.getAttribute("aria-disabled") === "true");
-  const readonly = Boolean(el.readOnly || el.getAttribute("aria-readonly") === "true");
-  const clickable = visible && !disabled && topmostAtCenter(el, rect) && (
-    tag === "button" ||
-    tag === "a" ||
-    tag === "input" ||
-    tag === "select" ||
-    tag === "textarea" ||
-    el.hasAttribute("onclick") ||
-    el.getAttribute("role") === "button" ||
-    el.getAttribute("role") === "link" ||
-    (el.hasAttribute("tabindex") && Number(el.getAttribute("tabindex")) >= 0)
-  );
-
-  const ref = "e" + String(elements.length + 1);
-  if (el === activeElement) {
-    focusRef = ref;
-  }
-  elements.push({
-    ref,
-    id: el.id || null,
-    tag,
-    role,
-    name,
-    text: textOf(el),
-    type,
-    placeholder: el.getAttribute("placeholder") || null,
-    autocomplete: el.getAttribute("autocomplete") || null,
-    value: safeValue(el),
-    checked: typeof el.checked === "boolean" ? el.checked : null,
-    selected: typeof el.selected === "boolean" ? el.selected : null,
-    is_submit: isSubmitControl(el),
-    form: formInfo(el),
-    enabled: !disabled,
-    readonly,
-    visible,
-    clickable,
-    href: el.href || null,
-    bbox: [rect.left, rect.top, rect.right, rect.bottom].map((n) => Math.round(n * 1000) / 1000)
-  });
+  addContext({root: document, doc: document, kind: "document"});
+  return contexts;
 }
 
-const warnings = [];
-if (document.querySelector("iframe")) warnings.push("iframes_not_traversed");
-if (Array.from(document.querySelectorAll("*")).some((el) => el.shadowRoot)) warnings.push("shadow_dom_not_traversed");
+const contexts = collectContexts();
+const activeElement = document.activeElement;
+let focusRef = null;
+const elements = [];
+
+for (const context of contexts) {
+  const candidates = Array.from(new Set(Array.from(context.root.querySelectorAll(selectors))));
+  for (const el of candidates) {
+    const rect = el.getBoundingClientRect();
+    const style = context.doc.defaultView.getComputedStyle(el);
+    const visible = isVisible(el, rect, style);
+    if (!visible && !el.matches("input,textarea,select,[role],[aria-label],[aria-labelledby]")) {
+      continue;
+    }
+
+    const tag = el.tagName.toLowerCase();
+    const type = el.getAttribute("type") || null;
+    const role = el.getAttribute("role") || (
+      tag === "button" ? "button" :
+      tag === "a" ? "link" :
+      tag === "select" ? "combobox" :
+      tag === "textarea" ? "textbox" :
+      tag === "input" ? (type === "checkbox" ? "checkbox" : type === "radio" ? "radio" : "textbox") :
+      null
+    );
+    const name = ariaName(el, context) || associatedLabel(el) || el.getAttribute("title") || el.getAttribute("placeholder") || textOf(el);
+    const disabled = Boolean(el.disabled || el.getAttribute("aria-disabled") === "true");
+    const readonly = Boolean(el.readOnly || el.getAttribute("aria-readonly") === "true");
+    const clickable = visible && !disabled && topmostAtCenter(el, rect, context) && (
+      tag === "button" ||
+      tag === "a" ||
+      tag === "input" ||
+      tag === "select" ||
+      tag === "textarea" ||
+      el.hasAttribute("onclick") ||
+      el.getAttribute("role") === "button" ||
+      el.getAttribute("role") === "link" ||
+      (el.hasAttribute("tabindex") && Number(el.getAttribute("tabindex")) >= 0)
+    );
+
+    const ref = "e" + String(elements.length + 1);
+    if (el === activeElement || el === context.root.activeElement) {
+      focusRef = ref;
+    }
+    elements.push({
+      ref,
+      context: context.kind,
+      frame_id: context.frameId,
+      shadow_host_id: context.shadowHostId,
+      id: el.id || null,
+      tag,
+      role,
+      name,
+      text: textOf(el),
+      type,
+      placeholder: el.getAttribute("placeholder") || null,
+      autocomplete: el.getAttribute("autocomplete") || null,
+      value: safeValue(el),
+      checked: typeof el.checked === "boolean" ? el.checked : null,
+      selected: typeof el.selected === "boolean" ? el.selected : null,
+      is_submit: isSubmitControl(el),
+      form: formInfo(el),
+      enabled: !disabled,
+      readonly,
+      visible,
+      clickable,
+      href: el.href || null,
+      bbox: [
+        context.offsetX + rect.left,
+        context.offsetY + rect.top,
+        context.offsetX + rect.right,
+        context.offsetY + rect.bottom
+      ].map((n) => Math.round(n * 1000) / 1000)
+    });
+  }
+}
+
+const aggregateText = contexts
+  .map((context) => textOf(context.root.body || context.root))
+  .filter(Boolean)
+  .join(" ")
+  .replace(/\s+/g, " ")
+  .trim()
+  .slice(0, 4000);
 
 return {
   snapshot_id: snapshotId,
@@ -203,7 +327,7 @@ return {
   title: document.title || "",
   viewport: {width: window.innerWidth, height: window.innerHeight},
   focus: focusRef ? {ref: focusRef} : null,
-  text: textOf(document.body).slice(0, 4000),
+  text: aggregateText,
   elements,
   warnings
 };

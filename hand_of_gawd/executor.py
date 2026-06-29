@@ -9,13 +9,65 @@ from typing import Any, Mapping
 from hand_of_gawd.contracts import ActionProposal
 
 
+DEEP_POINT_HELPERS_JS = r"""
+function resolveElementFromTopPoint(x, y) {
+  return resolveInRoot(document, x, y, 0, 0);
+}
+
+function fallbackElementFromPoint(root, x, y) {
+  if (!root || typeof root.querySelectorAll !== "function") {
+    return null;
+  }
+  const hits = Array.from(root.querySelectorAll("*")).filter((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  });
+  return hits.length ? hits[hits.length - 1] : null;
+}
+
+function rootElementFromPoint(root, x, y) {
+  if (!root) return null;
+  if (typeof root.elementFromPoint === "function") {
+    return root.elementFromPoint(x, y);
+  }
+  return fallbackElementFromPoint(root, x, y);
+}
+
+function resolveInRoot(root, x, y, offsetX, offsetY) {
+  const localX = x - offsetX;
+  const localY = y - offsetY;
+  let el = rootElementFromPoint(root, localX, localY);
+  while (el && el.shadowRoot) {
+    const shadowEl = rootElementFromPoint(el.shadowRoot, localX, localY);
+    if (!shadowEl || shadowEl === el) break;
+    el = shadowEl;
+  }
+  if (el && el.tagName && el.tagName.toLowerCase() === "iframe") {
+    let childDoc = null;
+    try {
+      childDoc = el.contentDocument;
+    } catch (err) {
+      return {element: el, error: "iframe_not_accessible"};
+    }
+    if (!childDoc) {
+      return {element: el, error: "iframe_not_accessible"};
+    }
+    const rect = el.getBoundingClientRect();
+    return resolveInRoot(childDoc, x, y, offsetX + rect.left, offsetY + rect.top);
+  }
+  return {element: el, error: null};
+}
+"""
+
+
 CLICK_AT_POINT_JS = r"""
 const x = arguments[0];
 const y = arguments[1];
 const expected = arguments[2] || {};
-const el = document.elementFromPoint(x, y);
+const resolved = resolveElementFromTopPoint(x, y);
+const el = resolved.element;
 if (!el) {
-  return {ok: false, error: "no_element_at_point"};
+  return {ok: false, error: resolved.error || "no_element_at_point"};
 }
 const identity = elementIdentity(el);
 if (!matchesExpected(identity, expected)) {
@@ -64,16 +116,17 @@ function matchesExpected(actual, expected) {
   }
   return true;
 }
-"""
+""" + DEEP_POINT_HELPERS_JS
 
 TYPE_AT_POINT_JS = r"""
 const x = arguments[0];
 const y = arguments[1];
 const value = arguments[2];
 const expected = arguments[3] || {};
-const el = document.elementFromPoint(x, y);
+const resolved = resolveElementFromTopPoint(x, y);
+const el = resolved.element;
 if (!el) {
-  return {ok: false, error: "no_element_at_point"};
+  return {ok: false, error: resolved.error || "no_element_at_point"};
 }
 const identity = elementIdentity(el);
 if (!matchesExpected(identity, expected)) {
@@ -122,16 +175,17 @@ function matchesExpected(actual, expected) {
   }
   return true;
 }
-"""
+""" + DEEP_POINT_HELPERS_JS
 
 SELECT_AT_POINT_JS = r"""
 const x = arguments[0];
 const y = arguments[1];
 const value = arguments[2];
 const expected = arguments[3] || {};
-const el = document.elementFromPoint(x, y);
+const resolved = resolveElementFromTopPoint(x, y);
+const el = resolved.element;
 if (!el) {
-  return {ok: false, error: "no_element_at_point"};
+  return {ok: false, error: resolved.error || "no_element_at_point"};
 }
 const identity = elementIdentity(el);
 if (!matchesExpected(identity, expected)) {
@@ -183,7 +237,7 @@ function matchesExpected(actual, expected) {
   }
   return true;
 }
-"""
+""" + DEEP_POINT_HELPERS_JS
 
 
 @dataclass(frozen=True)

@@ -59,10 +59,23 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
         "approval-proceed",
         "stale-state",
         "identity-mismatch",
+        "iframe-action",
+        "shadow-action",
         "varied-snapshot",
+        "blocked-iframe-snapshot",
     ]
 
-    safe, refusal, approved, stale, mismatch, varied = result["scenarios"]
+    (
+        safe,
+        refusal,
+        approved,
+        stale,
+        mismatch,
+        iframe_action,
+        shadow_action,
+        varied,
+        blocked_iframe,
+    ) = result["scenarios"]
     assert safe["gate"]["allowed"] is True
     assert safe["execution"]["ok"] is True
     assert safe["verification"]["passed"] is True
@@ -81,18 +94,26 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
     assert mismatch["gate"]["allowed"] is True
     assert mismatch["execution"]["ok"] is False
     assert mismatch["execution"]["reason"] == "target_identity_mismatch"
-    assert varied["snapshot"]["warnings"] == [
-        "iframes_not_traversed",
-        "shadow_dom_not_traversed",
-    ]
+    assert iframe_action["gate"]["allowed"] is True
+    assert iframe_action["execution"]["ok"] is True
+    assert iframe_action["verification"]["passed"] is True
+    assert iframe_action["execution"]["adapter_result"]["target"]["id"] == "iframe-button"
+    assert shadow_action["gate"]["allowed"] is True
+    assert shadow_action["execution"]["ok"] is True
+    assert shadow_action["verification"]["passed"] is True
+    assert shadow_action["execution"]["adapter_result"]["target"]["id"] == "shadow-button"
+    assert varied["snapshot"]["warnings"] == []
     assert "main-action" in varied["snapshot"]["element_ids"]
-    assert "iframe-button" not in varied["snapshot"]["element_ids"]
-    assert "shadow-button" not in varied["snapshot"]["element_ids"]
+    assert "iframe-button" in varied["snapshot"]["element_ids"]
+    assert "shadow-button" in varied["snapshot"]["element_ids"]
+    assert "iframes_not_traversed" in blocked_iframe["snapshot"]["warnings"]
+    assert "blocked-main-action" in blocked_iframe["snapshot"]["element_ids"]
+    assert "blocked-frame-button" not in blocked_iframe["snapshot"]["element_ids"]
 
     for scenario in result["scenarios"]:
         assert scenario["fixture_url"].startswith("http://127.0.0.1:")
         assert scenario["allow_url_prefix"].startswith("http://127.0.0.1:")
-        if scenario["scenario"] != "varied-snapshot":
+        if scenario["scenario"] not in {"varied-snapshot", "blocked-iframe-snapshot"}:
             assert scenario["target_ref"]
         assert Path(scenario["trace"]).exists()
         assert Path(scenario["before_screenshot"]).exists()

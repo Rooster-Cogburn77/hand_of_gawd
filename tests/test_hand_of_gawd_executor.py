@@ -1,6 +1,7 @@
 from hand_of_gawd.contracts import ActionProposal
 from hand_of_gawd.executor import (
     CLICK_AT_POINT_JS,
+    DEEP_POINT_HELPERS_JS,
     SELECT_AT_POINT_JS,
     TYPE_AT_POINT_JS,
     execute_browser_action,
@@ -59,6 +60,9 @@ def test_execute_click_uses_bbox_center_with_element_from_point_script():
     result = execute_browser_action(driver, _proposal(), _snapshot())
 
     assert result.ok is True
+    assert "resolveElementFromTopPoint" in CLICK_AT_POINT_JS
+    assert "iframe" in DEEP_POINT_HELPERS_JS
+    assert "shadowRoot" in DEEP_POINT_HELPERS_JS
     assert driver.calls == [
         (
             CLICK_AT_POINT_JS,

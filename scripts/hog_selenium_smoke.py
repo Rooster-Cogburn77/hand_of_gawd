@@ -34,14 +34,17 @@ from hand_of_gawd.trace import TraceRecorder
 
 DEFAULT_FIXTURE = REPO_ROOT / "examples" / "safe_toggle" / "index.html"
 DEFAULT_VARIED_FIXTURE = REPO_ROOT / "examples" / "varied_page" / "index.html"
+DEFAULT_BLOCKED_IFRAME_FIXTURE = REPO_ROOT / "examples" / "blocked_iframe" / "index.html"
 ACTION_SCENARIOS = (
     "safe",
     "unsafe-refusal",
     "approval-proceed",
     "stale-state",
     "identity-mismatch",
+    "iframe-action",
+    "shadow-action",
 )
-SCENARIOS = (*ACTION_SCENARIOS, "varied-snapshot", "all")
+SCENARIOS = (*ACTION_SCENARIOS, "varied-snapshot", "blocked-iframe-snapshot", "all")
 
 
 def main() -> int:
@@ -137,8 +140,29 @@ def run_smoke(
             run_smoke(
                 driver,
                 DEFAULT_VARIED_FIXTURE,
+                output_dir / "iframe-action",
+                scenario="iframe-action",
+                approval_mode=approval_mode,
+            ),
+            run_smoke(
+                driver,
+                DEFAULT_VARIED_FIXTURE,
+                output_dir / "shadow-action",
+                scenario="shadow-action",
+                approval_mode=approval_mode,
+            ),
+            run_smoke(
+                driver,
+                DEFAULT_VARIED_FIXTURE,
                 output_dir / "varied-snapshot",
                 scenario="varied-snapshot",
+                approval_mode=approval_mode,
+            ),
+            run_smoke(
+                driver,
+                DEFAULT_BLOCKED_IFRAME_FIXTURE,
+                output_dir / "blocked-iframe-snapshot",
+                scenario="blocked-iframe-snapshot",
                 approval_mode=approval_mode,
             ),
         ]
@@ -239,7 +263,33 @@ def run_smoke(
             )
             gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
             _cover_arm_button_with_impostor(driver)
-        elif scenario == "varied-snapshot":
+        elif scenario == "iframe-action":
+            target_ref = _find_target_ref(before, target_id="iframe-button")
+            proposal = _proposal(
+                goal="prove a same-origin iframe button can be observed and clicked",
+                state_seen=before["snapshot_id"],
+                target_ref=target_ref,
+                reason="Click the public synthetic iframe button.",
+                assertions=[
+                    {"type": "text_present", "value": "IFRAME"},
+                    {"type": "text_absent", "value": "READY"},
+                ],
+            )
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+        elif scenario == "shadow-action":
+            target_ref = _find_target_ref(before, target_id="shadow-button")
+            proposal = _proposal(
+                goal="prove an open-shadow-root button can be observed and clicked",
+                state_seen=before["snapshot_id"],
+                target_ref=target_ref,
+                reason="Click the public synthetic shadow-root button.",
+                assertions=[
+                    {"type": "text_present", "value": "SHADOW"},
+                    {"type": "text_absent", "value": "READY"},
+                ],
+            )
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+        elif scenario in {"varied-snapshot", "blocked-iframe-snapshot"}:
             trace.record(
                 "snapshot_coverage",
                 {
@@ -253,7 +303,11 @@ def run_smoke(
                 },
             )
             driver.save_screenshot(str(output_dir / "after.png"))
-            passed = _varied_snapshot_passed(before)
+            passed = (
+                _varied_snapshot_passed(before)
+                if scenario == "varied-snapshot"
+                else _blocked_iframe_snapshot_passed(before)
+            )
             return {
                 "scenario": scenario,
                 "passed": passed,
@@ -426,12 +480,26 @@ def _varied_snapshot_passed(snapshot: dict[str, Any]) -> bool:
         if element.get("id")
     }
     return (
-        "iframes_not_traversed" in warnings
-        and "shadow_dom_not_traversed" in warnings
+        "iframes_not_traversed" not in warnings
+        and "shadow_dom_not_traversed" not in warnings
         and "main-action" in ids
         and "email-field" in ids
-        and "iframe-button" not in ids
-        and "shadow-button" not in ids
+        and "iframe-button" in ids
+        and "shadow-button" in ids
+    )
+
+
+def _blocked_iframe_snapshot_passed(snapshot: dict[str, Any]) -> bool:
+    warnings = set(snapshot.get("warnings", []))
+    ids = {
+        element.get("id")
+        for element in snapshot.get("elements", [])
+        if element.get("id")
+    }
+    return (
+        "iframes_not_traversed" in warnings
+        and "blocked-main-action" in ids
+        and "blocked-frame-button" not in ids
     )
 
 

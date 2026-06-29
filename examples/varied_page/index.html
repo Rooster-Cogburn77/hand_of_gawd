@@ -24,6 +24,12 @@
         font-size: 30px;
       }
 
+      #varied-state {
+        margin: 0 0 24px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+
       button,
       input {
         display: block;
@@ -46,6 +52,7 @@
   <body>
     <main>
       <h1>Varied Snapshot Fixture</h1>
+      <div id="varied-state">READY</div>
       <button id="main-action" type="button">Main Action</button>
       <label for="email-field">Email</label>
       <input id="email-field" type="email" autocomplete="email" value="person@example.test">
@@ -53,13 +60,16 @@
       <iframe
         id="embedded-frame"
         title="Embedded controls"
-        srcdoc="<!doctype html><html><body><button id='iframe-button'>Iframe Action</button></body></html>"
+        srcdoc="<!doctype html><html><body><button id='iframe-button' onclick=&quot;parent.document.getElementById('varied-state').textContent='IFRAME'&quot;>Iframe Action</button></body></html>"
       ></iframe>
     </main>
     <script>
       const host = document.getElementById("shadow-host");
       const root = host.attachShadow({mode: "open"});
       root.innerHTML = "<button id='shadow-button'>Shadow Action</button>";
+      root.getElementById("shadow-button").onclick = () => {
+        document.getElementById("varied-state").textContent = "SHADOW";
+      };
     </script>
   </body>
 </html>

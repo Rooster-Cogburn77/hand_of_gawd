@@ -25,10 +25,13 @@ class FakeDriver:
 
 
 def test_snapshot_script_uses_element_from_point_for_clickability():
-    assert "document.elementFromPoint" in SNAPSHOT_JS
+    assert "TOP_DOCUMENT.elementFromPoint" in SNAPSHOT_JS
+    assert "root.elementFromPoint" in SNAPSHOT_JS
     assert "iframes_not_traversed" in SNAPSHOT_JS
-    assert "shadow_dom_not_traversed" in SNAPSHOT_JS
-    assert "Array.from(document.querySelectorAll(\"*\")).some" in SNAPSHOT_JS
+    assert "collectContexts" in SNAPSHOT_JS
+    assert "shadowRoot" in SNAPSHOT_JS
+    assert "frame_id" in SNAPSHOT_JS
+    assert "shadow_host_id" in SNAPSHOT_JS
     assert "isSubmitControl" in SNAPSHOT_JS
     assert "formInfo" in SNAPSHOT_JS
 

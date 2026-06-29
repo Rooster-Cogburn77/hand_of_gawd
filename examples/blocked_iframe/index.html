@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>hand_of_gawd blocked iframe fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+        color: #111827;
+      }
+
+      main {
+        padding: 56px 72px;
+      }
+
+      h1 {
+        margin: 0 0 28px;
+        font-size: 30px;
+      }
+
+      button {
+        display: block;
+        margin: 18px 0;
+        font-size: 20px;
+      }
+
+      iframe {
+        width: 360px;
+        height: 110px;
+        border: 2px solid #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Blocked Iframe Fixture</h1>
+      <button id="blocked-main-action" type="button">Main Action</button>
+      <iframe
+        id="blocked-frame"
+        title="Sandboxed controls"
+        sandbox=""
+        srcdoc="<!doctype html><html><body><button id='blocked-frame-button'>Blocked Frame Action</button></body></html>"
+      ></iframe>
+    </main>
+  </body>
+</html>

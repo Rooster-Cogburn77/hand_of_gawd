@@ -52,7 +52,7 @@ It starts a temporary `http://127.0.0.1` fixture server and exercises the browse
 python scripts/hog_selenium_smoke.py --output-dir runtime/hog_selenium_smoke
 ```
 
-To exercise the safe action, unsafe refusal, approval-proceed, stale-state, identity-mismatch, and varied-snapshot paths in one run:
+To exercise the safe action, unsafe refusal, approval-proceed, stale-state, identity-mismatch, same-origin iframe action, open-shadow-root action, varied-snapshot, and blocked-iframe warning paths in one run:
 
 ```powershell
 python scripts/hog_selenium_smoke.py --scenario all --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
@@ -95,8 +95,13 @@ Sanitized result:
 
 Boundary: this proves the synthetic browser-Linux safety loop for safe action, unapproved risky-action refusal, approved risky-action execution, post-action verification, and trace evidence. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
 
+Later commit `6cf8684` added live-proven stale-state, identity-mismatch, and varied-snapshot hardening scenarios. The current runner also includes same-origin iframe, open-shadow-root action, and blocked-iframe warning scenarios; those are unit-covered until the Selenium smoke is rerun on a browser-equipped machine.
+
 Additional smoke scenarios:
 
 - `stale-state`: proves a proposal with stale `state_seen` is blocked before execution.
 - `identity-mismatch`: proves a page shift between snapshot and execution is refused by the live element identity re-check before clicking the impostor.
-- `varied-snapshot`: observes a second synthetic fixture with iframe and shadow DOM content, captures the top-level controls, and records `iframes_not_traversed` / `shadow_dom_not_traversed` warnings instead of pretending those subtrees were covered.
+- `iframe-action`: proves a same-origin iframe control can be observed, gated, identity-checked, clicked, and verified.
+- `shadow-action`: proves an open-shadow-root control can be observed, gated, identity-checked, clicked, and verified.
+- `varied-snapshot`: observes a second synthetic fixture with top-level, same-origin iframe, and open-shadow-root controls. Same-origin/open subtrees are traversed.
+- `blocked-iframe-snapshot`: observes an opaque sandboxed iframe fixture and requires `iframes_not_traversed`, proving blocked subtrees are warned about instead of silently claimed.
