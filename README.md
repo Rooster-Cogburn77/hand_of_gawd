@@ -2,7 +2,7 @@
 
 `hand_of_gawd` is a local-first, safety-gated automation harness for browser and desktop UI work.
 
-The core idea is simple: an agent does not get to directly act. It proposes an action, a deterministic policy gate evaluates that proposal against the current UI state, an executor performs only approved low-risk actions, and a verifier checks the result before the loop proceeds.
+**The core idea is simple: an agent does not get to directly act.** It proposes an action, a deterministic policy gate evaluates that proposal against the current UI state, an executor performs only approved low-risk actions, and a verifier checks the result before the loop proceeds.
 
 ## Current Scope
 
@@ -22,7 +22,7 @@ This is not yet a production browser agent, not a password manager, and not an u
 
 The first-class object is an action proposal, not an action.
 
-Each step is intended to follow this shape:
+Each step follows this shape:
 
 1. Observe the UI.
 2. Propose one action.
@@ -36,72 +36,52 @@ The planner's `risk_class` is treated as advisory metadata only. The policy gate
 
 When the gate returns a liftable `approval_required`, an operator can approve one exact stable action key. That key is derived from action type, a hash of the proposed action value when present, current URL, and stable target identity. Approval does not bypass blocked checks such as stale snapshots, missing targets, disabled targets, non-clickable targets, or sensitive fields.
 
+## Proof Status
+
+**Live-proven** on a real Firefox/geckodriver environment (synthetic, browser-Linux; commits `88044a9` and `6cf8684`):
+
+- `safe` - a harmless control is allowed, identity-checked, executed, and verified.
+- `unsafe-refusal` - a form-submit target is refused before execution (`approval_required`, `operator_approved_action: false`, trace `policy_gate` -> `step_result`).
+- `approval-proceed` - the same target proceeds only with `operator_approved_action: true` from an external stable action key, then verifies.
+- `stale-state` - a proposal with stale `state_seen` is blocked before execution.
+- `identity-mismatch` - a page shift between snapshot and execution is refused by the live identity re-check before clicking the impostor.
+- `varied-snapshot` - a second fixture is observed and records iframe/shadow-DOM coverage gaps instead of pretending those subtrees were covered.
+
+**Committed and unit-covered, not yet live-proven** (pending a Selenium rerun on a browser-equipped machine at or after commit `9593b74`):
+
+- `iframe-action` - same-origin iframe control: observe, gate, identity-check, click, verify.
+- `shadow-action` - open-shadow-root control: observe, gate, identity-check, click, verify.
+- Updated `varied-snapshot` - same-origin iframe and open-shadow-root controls are traversed and included in the snapshot.
+- `blocked-iframe-snapshot` - an opaque sandboxed iframe must report `iframes_not_traversed`, proving blocked subtrees are warned about instead of silently claimed.
+
+Approval keys are `hog-approval-v1:<sha256>` values derived from action type, a hash of the proposed action value when present, current URL, and stable target identity - not ephemeral snapshot refs such as `e5`.
+
+Boundary: the live-proven tier covers the synthetic browser-Linux safety loop only. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
+
+## Selenium Smoke
+
+The public smoke fixture lives at `examples/safe_toggle/index.html`. It starts a temporary `http://127.0.0.1` fixture server and exercises the browser loop against local synthetic pages; it does not enable `file://` access in the policy gate.
+
+Run the full set:
+
+```bash
+python scripts/hog_selenium_smoke.py --scenario all --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
+```
+
+Use the human approval prompt for the approval-proceed path:
+
+```bash
+python scripts/hog_selenium_smoke.py --scenario approval-proceed --approval-mode prompt --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke_prompt
+```
+
+The prompt shows the gate reason, URL, goal, action type, stable target identity, expected deterministic result, and approval key. The operator must type `YES`; anything else leaves the action unapproved. Approval-proceed traces include `approval_request` and `approval_response` events before the final `policy_gate`, `action_execution`, and `step_result` events. Trace redaction hides visible element labels and action value previews by default.
+
+The runner writes `before.png`, `after.png`, and `hog_trace_selenium_<scenario>.jsonl`. The integration test skips when Selenium, Firefox, or geckodriver are unavailable; the real evidence artifact is the runner output from an environment with those tools installed.
+
+On snap-based Firefox installs, do not pass `/usr/bin/firefox` as `--firefox-binary` - that path may be a wrapper geckodriver rejects as not a Firefox executable. Pass only `--geckodriver` and let geckodriver locate Firefox.
+
 ## Public Status
 
 This is an early public scaffold. The API may change while the harness is being shaped.
 
-License has not been selected yet.
-
-## Selenium Smoke
-
-The public smoke fixture lives at `examples/safe_toggle/index.html`.
-
-It starts a temporary `http://127.0.0.1` fixture server and exercises the browser loop against a local synthetic page:
-
-```powershell
-python scripts/hog_selenium_smoke.py --output-dir runtime/hog_selenium_smoke
-```
-
-To exercise the safe action, unsafe refusal, approval-proceed, stale-state, identity-mismatch, same-origin iframe action, open-shadow-root action, varied-snapshot, and blocked-iframe warning paths in one run:
-
-```powershell
-python scripts/hog_selenium_smoke.py --scenario all --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
-```
-
-To use the human approval prompt for the approval-proceed path:
-
-```powershell
-python scripts/hog_selenium_smoke.py --scenario approval-proceed --approval-mode prompt --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke_prompt
-```
-
-The prompt shows the gate reason, URL, goal, action type, stable target identity, expected deterministic result, and approval key. The operator must type `YES`; anything else leaves the action unapproved.
-
-Approval-proceed traces include `approval_request` and `approval_response` events before the final `policy_gate`, `action_execution`, and `step_result` events. Trace redaction hides visible element labels and action value previews by default.
-
-If geckodriver is not discoverable, pass it explicitly:
-
-```powershell
-python scripts/hog_selenium_smoke.py --geckodriver /path/to/geckodriver --output-dir runtime/hog_selenium_smoke
-```
-
-The runner writes `before.png`, `after.png`, and `hog_trace_selenium_<scenario>.jsonl`. It does not enable `file://` access in the policy gate. A passing safe run means the fixture was observed, the Arm button proposal passed the deterministic URL allowlist gate, Selenium acted through the browser adapter, the page changed to `ARMED`, and the deterministic verifier passed.
-
-The integration test skips when Selenium, Firefox, or geckodriver are unavailable; the real evidence artifact is the runner output from an environment with those tools installed.
-
-On snap-based Firefox installs, do not pass `/usr/bin/firefox` as `--firefox-binary`; that path may be a wrapper and geckodriver can reject it as not being a Firefox executable. In that case, pass only `--geckodriver` and let geckodriver locate Firefox.
-
-## Current Proof
-
-The Selenium smoke has passed the full `--scenario all` proof on a real Firefox/geckodriver environment at repo commit `88044a9`.
-
-Sanitized result:
-
-- Fixture served from temporary `http://127.0.0.1:<port>/index.html` URLs.
-- Policy gate used loopback URL allowlists; `file://` access was not enabled.
-- `safe`: the harmless `arm-button` was allowed, identity-checked, executed, and verified with armed state present and safe state absent.
-- `unsafe-refusal`: the form-submit target was refused before execution with `gate_risk_class: approval_required`, `operator_approved_action: false`, and trace sequence `policy_gate`, `step_result`.
-- `approval-proceed`: the same submit target proceeded only with `operator_approved_action: true` from an external stable action key, then verified submitted state present and draft state absent.
-- Approval keys are `hog-approval-v1:<sha256>` values derived from action type, a hash of the proposed action value when present, current URL, and stable target identity, not ephemeral snapshot refs such as `e5`.
-
-Boundary: this proves the synthetic browser-Linux safety loop for safe action, unapproved risky-action refusal, approved risky-action execution, post-action verification, and trace evidence. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
-
-Later commit `6cf8684` added live-proven stale-state, identity-mismatch, and varied-snapshot hardening scenarios. The current runner also includes same-origin iframe, open-shadow-root action, and blocked-iframe warning scenarios; those are unit-covered until the Selenium smoke is rerun on a browser-equipped machine.
-
-Additional smoke scenarios:
-
-- `stale-state`: proves a proposal with stale `state_seen` is blocked before execution.
-- `identity-mismatch`: proves a page shift between snapshot and execution is refused by the live element identity re-check before clicking the impostor.
-- `iframe-action`: proves a same-origin iframe control can be observed, gated, identity-checked, clicked, and verified.
-- `shadow-action`: proves an open-shadow-root control can be observed, gated, identity-checked, clicked, and verified.
-- `varied-snapshot`: observes a second synthetic fixture with top-level, same-origin iframe, and open-shadow-root controls. Same-origin/open subtrees are traversed.
-- `blocked-iframe-snapshot`: observes an opaque sandboxed iframe fixture and requires `iframes_not_traversed`, proving blocked subtrees are warned about instead of silently claimed.
+Licensed under the MIT License.
