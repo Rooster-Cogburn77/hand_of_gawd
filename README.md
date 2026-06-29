@@ -79,6 +79,6 @@ Sanitized result:
 - `safe`: the harmless `arm-button` was allowed, identity-checked, executed, and verified with armed state present and safe state absent.
 - `unsafe-refusal`: the form-submit target was refused before execution with `gate_risk_class: approval_required`, `operator_approved_action: false`, and trace sequence `policy_gate`, `step_result`.
 - `approval-proceed`: the same submit target proceeded only with `operator_approved_action: true` from an external stable action key, then verified submitted state present and draft state absent.
-- Approval keys are `hog-approval-v1:<sha256>` values derived from action type, current URL, and stable target identity, not ephemeral snapshot refs such as `e5`.
+- Approval keys are `hog-approval-v1:<sha256>` values derived from action type, a hash of the proposed action value when present, current URL, and stable target identity, not ephemeral snapshot refs such as `e5`.
 
 Boundary: this proves the synthetic browser-Linux safety loop for safe action, unapproved risky-action refusal, approved risky-action execution, post-action verification, and trace evidence. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.

@@ -305,6 +305,57 @@ def test_approval_key_does_not_authorize_reused_ref_with_different_identity():
     assert decision.checks["operator_approved_action"] is False
 
 
+def test_approval_key_binds_typed_action_value_without_leaking_value():
+    snapshot = _snapshot(
+        elements=[
+            {
+                "ref": "note",
+                "tag": "textarea",
+                "role": "textbox",
+                "name": "Save note",
+                "text": "",
+                "type": None,
+                "enabled": True,
+                "visible": True,
+                "clickable": True,
+            }
+        ]
+    )
+    approved_proposal = _proposal(
+        proposed_action={
+            "type": "type",
+            "target_ref": "note",
+            "value": "approved value",
+        }
+    )
+    approval_key = compute_approval_key(approved_proposal, snapshot)
+    changed_proposal = _proposal(
+        proposed_action={
+            "type": "type",
+            "target_ref": "note",
+            "value": "different value",
+        }
+    )
+
+    approved_decision = evaluate_policy_gate(
+        approved_proposal,
+        snapshot,
+        GateConfig(allow_file_urls=True, approved_action_keys=(approval_key,)),
+    )
+    changed_decision = evaluate_policy_gate(
+        changed_proposal,
+        snapshot,
+        GateConfig(allow_file_urls=True, approved_action_keys=(approval_key,)),
+    )
+
+    assert approved_decision.allowed is True
+    assert approved_decision.gate_risk_class == "approval_granted"
+    assert changed_decision.allowed is False
+    assert changed_decision.gate_risk_class == "approval_required"
+    assert changed_decision.checks["operator_approved_action"] is False
+    assert "approved value" not in approval_key
+
+
 def test_operator_approval_does_not_override_clickability_gate():
     snapshot = _snapshot(
         elements=[

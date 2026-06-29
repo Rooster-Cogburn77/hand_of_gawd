@@ -190,7 +190,12 @@ def evaluate_policy_gate(
     )
     checks["target_form_submit"] = bool(target.get("is_submit"))
     checks["target_cross_origin"] = _target_cross_origin(current_url, target)
-    checks["target_approval_key"] = _approval_key(action.type, current_url, target)
+    checks["target_approval_key"] = _approval_key(
+        action.type,
+        current_url,
+        target,
+        action.value,
+    )
 
     if not checks["target_visible"] or not checks["target_enabled"]:
         return _decision(
@@ -261,7 +266,12 @@ def compute_approval_key(
     if target is None:
         raise ValueError("target_ref was not found in current snapshot")
     current_url = str(snapshot.get("url") or "")
-    return _approval_key(parsed.proposed_action.type, current_url, target)
+    return _approval_key(
+        parsed.proposed_action.type,
+        current_url,
+        target,
+        parsed.proposed_action.value,
+    )
 
 
 def _decision(
@@ -310,13 +320,19 @@ def _approval_decision(
     )
 
 
-def _approval_key(action_type: str, current_url: str, target: Mapping[str, Any]) -> str:
+def _approval_key(
+    action_type: str,
+    current_url: str,
+    target: Mapping[str, Any],
+    action_value: Any,
+) -> str:
     form = target.get("form")
     form_action = None
     if isinstance(form, Mapping):
         form_action = form.get("action")
     identity = {
         "action_type": action_type,
+        "action_value_sha256": _action_value_hash(action_value),
         "current_url": current_url,
         "target": {
             "id": target.get("id"),
@@ -333,6 +349,13 @@ def _approval_key(action_type: str, current_url: str, target: Mapping[str, Any])
     canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), default=str)
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return f"hog-approval-v1:{digest}"
+
+
+def _action_value_hash(value: Any) -> str | None:
+    if value is None:
+        return None
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _find_target(snapshot: Mapping[str, Any], target_ref: str | None) -> Mapping[str, Any] | None:
