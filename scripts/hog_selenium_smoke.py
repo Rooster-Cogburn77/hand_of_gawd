@@ -34,6 +34,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fixture", default=str(DEFAULT_FIXTURE))
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "runtime" / "hog_selenium_smoke"))
+    parser.add_argument(
+        "--scenario",
+        choices=("safe", "unsafe-refusal", "approval-proceed", "all"),
+        default="safe",
+    )
     parser.add_argument("--firefox-binary")
     parser.add_argument("--geckodriver")
     parser.add_argument("--headed", action="store_true")
@@ -48,7 +53,7 @@ def main() -> int:
         headless=not args.headed,
     )
     try:
-        result = run_smoke(driver, Path(args.fixture), output_dir)
+        result = run_smoke(driver, Path(args.fixture), output_dir, scenario=args.scenario)
     finally:
         driver.quit()
 
@@ -56,8 +61,36 @@ def main() -> int:
     return 0 if result["passed"] else 2
 
 
-def run_smoke(driver: Any, fixture: Path, output_dir: Path) -> dict[str, Any]:
+def run_smoke(
+    driver: Any,
+    fixture: Path,
+    output_dir: Path,
+    *,
+    scenario: str = "safe",
+) -> dict[str, Any]:
     """Run the public safe-toggle proof with an already-open Selenium driver."""
+
+    if scenario == "all":
+        results = [
+            run_smoke(driver, fixture, output_dir / "safe", scenario="safe"),
+            run_smoke(
+                driver,
+                fixture,
+                output_dir / "unsafe-refusal",
+                scenario="unsafe-refusal",
+            ),
+            run_smoke(
+                driver,
+                fixture,
+                output_dir / "approval-proceed",
+                scenario="approval-proceed",
+            ),
+        ]
+        return {
+            "scenario": "all",
+            "passed": all(result["passed"] for result in results),
+            "scenarios": results,
+        }
 
     fixture = fixture.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -71,37 +104,67 @@ def run_smoke(driver: Any, fixture: Path, output_dir: Path) -> dict[str, Any]:
             snapshot_id="s1",
             screenshot_path=output_dir / "before.png",
         )
-        target_ref = _find_target_ref(before, target_id="arm-button")
-        proposal = {
-            "goal": "arm the synthetic safe toggle fixture",
-            "state_seen": before["snapshot_id"],
-            "risk_class": "safe",
-            "proposed_action": {
-                "type": "click",
-                "target_ref": target_ref,
-                "reason": "Click the public synthetic Arm button.",
-                "expected_result": {
-                    "assertions": [
-                        {"type": "text_present", "value": "ARMED"},
-                        {"type": "text_absent", "value": "SAFE"},
-                    ]
-                },
-            },
-        }
 
-        trace_path = output_dir / "hog_trace_selenium_smoke.jsonl"
+        if scenario == "safe":
+            target_ref = _find_target_ref(before, target_id="arm-button")
+            proposal = _proposal(
+                goal="arm the synthetic safe toggle fixture",
+                state_seen=before["snapshot_id"],
+                target_ref=target_ref,
+                reason="Click the public synthetic Arm button.",
+                assertions=[
+                    {"type": "text_present", "value": "ARMED"},
+                    {"type": "text_absent", "value": "SAFE"},
+                ],
+            )
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+        elif scenario == "unsafe-refusal":
+            target_ref = _find_target_ref(before, target_id="submit-button")
+            proposal = _proposal(
+                goal="prove the gate refuses an unapproved synthetic submit",
+                state_seen=before["snapshot_id"],
+                target_ref=target_ref,
+                reason="Try to click the public synthetic Submit button without approval.",
+                assertions=[
+                    {"type": "text_present", "value": "SUBMITTED"},
+                    {"type": "text_absent", "value": "DRAFT"},
+                ],
+            )
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+        elif scenario == "approval-proceed":
+            target_ref = _find_target_ref(before, target_id="submit-button")
+            proposal = _proposal(
+                goal="prove an operator-approved synthetic submit can proceed",
+                state_seen=before["snapshot_id"],
+                target_ref=target_ref,
+                reason="Click the public synthetic Submit button after approval.",
+                assertions=[
+                    {"type": "text_present", "value": "SUBMITTED"},
+                    {"type": "text_absent", "value": "DRAFT"},
+                ],
+            )
+            gate_config = GateConfig(
+                allowed_url_prefixes=(served.base_url,),
+                approved_target_refs=(target_ref,),
+            )
+        else:
+            raise ValueError(f"unsupported scenario: {scenario}")
+
+        trace_path = output_dir / f"hog_trace_selenium_{scenario}.jsonl"
         step = run_verified_step(
             driver,
             proposal,
             before,
-            gate_config=GateConfig(allowed_url_prefixes=(served.base_url,)),
+            gate_config=gate_config,
             trace=TraceRecorder(trace_path),
             after_snapshot_id="s2",
         )
         driver.save_screenshot(str(output_dir / "after.png"))
+        passed = _scenario_passed(scenario, step)
 
         return {
-            "passed": step.passed,
+            "scenario": scenario,
+            "passed": passed,
             "fixture": str(fixture),
             "fixture_url": served.url,
             "allow_url_prefix": served.base_url,
@@ -139,6 +202,39 @@ def _find_target_ref(snapshot: dict[str, Any], *, target_id: str) -> str:
         if element.get("id") == target_id:
             return str(element["ref"])
     raise RuntimeError(f"target id not found in snapshot: {target_id}")
+
+
+def _proposal(
+    *,
+    goal: str,
+    state_seen: str,
+    target_ref: str,
+    reason: str,
+    assertions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "goal": goal,
+        "state_seen": state_seen,
+        "risk_class": "safe",
+        "proposed_action": {
+            "type": "click",
+            "target_ref": target_ref,
+            "reason": reason,
+            "expected_result": {"assertions": assertions},
+        },
+    }
+
+
+def _scenario_passed(scenario: str, step: Any) -> bool:
+    if scenario == "unsafe-refusal":
+        return (
+            step.gate.allowed is False
+            and step.gate.gate_risk_class == "approval_required"
+            and step.execution is None
+            and step.after_snapshot is None
+            and step.verification is None
+        )
+    return bool(step.passed)
 
 
 class _ServedFixture:

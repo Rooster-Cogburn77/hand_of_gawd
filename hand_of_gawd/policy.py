@@ -72,6 +72,7 @@ class GateConfig:
     allow_file_urls: bool = False
     require_snapshot_freshness: bool = True
     approval_keywords: tuple[str, ...] = APPROVAL_KEYWORDS
+    approved_target_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -207,30 +208,27 @@ def evaluate_policy_gate(
         )
 
     if checks["target_form_submit"]:
-        return _decision(
-            False,
-            "approval_required",
+        return _approval_decision(
             "target submits a form",
             parsed,
             checks,
+            config,
         )
 
     if checks["target_cross_origin"]:
-        return _decision(
-            False,
-            "approval_required",
+        return _approval_decision(
             "target navigates or submits cross-origin",
             parsed,
             checks,
+            config,
         )
 
     if checks["target_approval_keyword"]:
-        return _decision(
-            False,
-            "approval_required",
+        return _approval_decision(
             "target text or label matches an approval-required action",
             parsed,
             checks,
+            config,
         )
 
     if action.type == "click" and not checks["target_clickable"]:
@@ -261,6 +259,34 @@ def _decision(
         target_ref=action.target_ref,
         planner_risk_class=proposal.planner_risk_class,
         checks=dict(checks),
+    )
+
+
+def _approval_decision(
+    reason: str,
+    proposal: ActionProposal,
+    checks: Mapping[str, Any],
+    config: GateConfig,
+) -> GateDecision:
+    action = proposal.proposed_action
+    checks_with_approval = dict(checks)
+    checks_with_approval["operator_approved_target"] = (
+        action.target_ref in config.approved_target_refs
+    )
+    if checks_with_approval["operator_approved_target"]:
+        return _decision(
+            True,
+            "approval_granted",
+            f"operator approval granted: {reason}",
+            proposal,
+            checks_with_approval,
+        )
+    return _decision(
+        False,
+        "approval_required",
+        reason,
+        proposal,
+        checks_with_approval,
     )
 
 

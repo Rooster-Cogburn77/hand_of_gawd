@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -16,13 +17,7 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
     if importlib.util.find_spec("selenium") is None:
         pytest.skip("selenium is not installed")
 
-    firefox = _first_existing(
-        [
-            shutil.which("firefox"),
-            shutil.which("firefox.exe"),
-            "/usr/bin/firefox",
-        ]
-    )
+    firefox = os.environ.get("HOG_FIREFOX_BINARY")
     geckodriver = _first_existing(
         [
             shutil.which("geckodriver"),
@@ -30,8 +25,6 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
             "/snap/bin/geckodriver",
         ]
     )
-    if firefox is None:
-        pytest.skip("firefox is not available")
     if geckodriver is None:
         pytest.skip("geckodriver is not available")
 
@@ -40,11 +33,14 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
         str(REPO_ROOT / "scripts" / "hog_selenium_smoke.py"),
         "--output-dir",
         str(tmp_path),
-        "--firefox-binary",
-        firefox,
+        "--scenario",
+        "all",
         "--geckodriver",
         geckodriver,
     ]
+    if firefox:
+        cmd.extend(["--firefox-binary", firefox])
+
     completed = subprocess.run(
         cmd,
         cwd=REPO_ROOT,
@@ -57,16 +53,31 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
     assert completed.returncode == 0, completed.stderr + completed.stdout
     result = json.loads(completed.stdout)
     assert result["passed"] is True
-    assert result["fixture_url"].startswith("http://127.0.0.1:")
-    assert result["allow_url_prefix"].startswith("http://127.0.0.1:")
-    assert result["target_ref"]
-    assert result["gate"]["allowed"] is True
-    assert result["gate"]["checks"]["current_url_allowed"] is True
-    assert result["execution"]["ok"] is True
-    assert result["verification"]["passed"] is True
-    assert Path(result["trace"]).exists()
-    assert Path(result["before_screenshot"]).exists()
-    assert Path(result["after_screenshot"]).exists()
+    assert [scenario["scenario"] for scenario in result["scenarios"]] == [
+        "safe",
+        "unsafe-refusal",
+        "approval-proceed",
+    ]
+
+    safe, refusal, approved = result["scenarios"]
+    assert safe["gate"]["allowed"] is True
+    assert safe["execution"]["ok"] is True
+    assert safe["verification"]["passed"] is True
+    assert refusal["gate"]["allowed"] is False
+    assert refusal["gate"]["gate_risk_class"] == "approval_required"
+    assert refusal["execution"] is None
+    assert approved["gate"]["allowed"] is True
+    assert approved["gate"]["gate_risk_class"] == "approval_granted"
+    assert approved["execution"]["ok"] is True
+    assert approved["verification"]["passed"] is True
+
+    for scenario in result["scenarios"]:
+        assert scenario["fixture_url"].startswith("http://127.0.0.1:")
+        assert scenario["allow_url_prefix"].startswith("http://127.0.0.1:")
+        assert scenario["target_ref"]
+        assert Path(scenario["trace"]).exists()
+        assert Path(scenario["before_screenshot"]).exists()
+        assert Path(scenario["after_screenshot"]).exists()
 
 
 def _first_existing(candidates):

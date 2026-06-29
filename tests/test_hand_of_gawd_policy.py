@@ -131,6 +131,40 @@ def test_gate_blocks_password_field_even_when_planner_says_safe():
     assert decision.checks["target_sensitive"] is True
 
 
+def test_operator_approval_does_not_override_sensitive_field_gate():
+    snapshot = _snapshot(
+        elements=[
+            {
+                "ref": "pw",
+                "tag": "input",
+                "role": "textbox",
+                "name": "Password",
+                "type": "password",
+                "enabled": True,
+                "visible": True,
+                "clickable": True,
+            }
+        ]
+    )
+    proposal = _proposal(
+        proposed_action={
+            "type": "type",
+            "target_ref": "pw",
+            "value": "not-written",
+        }
+    )
+
+    decision = evaluate_policy_gate(
+        proposal,
+        snapshot,
+        GateConfig(allow_file_urls=True, approved_target_refs=("pw",)),
+    )
+
+    assert decision.allowed is False
+    assert decision.gate_risk_class == "approval_required"
+    assert decision.checks["target_sensitive"] is True
+
+
 def test_gate_requires_approval_for_submit_control_without_label_keyword():
     snapshot = _snapshot(
         elements=[
@@ -167,6 +201,46 @@ def test_gate_requires_approval_for_submit_control_without_label_keyword():
     assert decision.allowed is False
     assert decision.gate_risk_class == "approval_required"
     assert decision.checks["target_form_submit"] is True
+    assert decision.checks["operator_approved_target"] is False
+
+
+def test_gate_allows_submit_control_after_external_operator_approval():
+    snapshot = _snapshot(
+        elements=[
+            {
+                "ref": "submit",
+                "tag": "button",
+                "role": "button",
+                "name": "Continue",
+                "text": "Continue",
+                "is_submit": True,
+                "form": {
+                    "action": "file:///tmp/hand-of-gawd/next.html",
+                    "method": "post",
+                },
+                "enabled": True,
+                "visible": True,
+                "clickable": True,
+            }
+        ]
+    )
+    proposal = _proposal(
+        proposed_action={
+            "type": "click",
+            "target_ref": "submit",
+        }
+    )
+
+    decision = evaluate_policy_gate(
+        proposal,
+        snapshot,
+        GateConfig(allow_file_urls=True, approved_target_refs=("submit",)),
+    )
+
+    assert decision.allowed is True
+    assert decision.gate_risk_class == "approval_granted"
+    assert decision.checks["target_form_submit"] is True
+    assert decision.checks["operator_approved_target"] is True
 
 
 def test_gate_requires_approval_for_cross_origin_link():

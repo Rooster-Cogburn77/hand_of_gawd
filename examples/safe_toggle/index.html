@@ -46,6 +46,28 @@
       #arm-button[aria-pressed="true"] {
         background: #047857;
       }
+
+      form {
+        margin-top: 48px;
+      }
+
+      #approval-state {
+        margin-bottom: 16px;
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      #submit-button {
+        width: 220px;
+        height: 64px;
+        border: 0;
+        border-radius: 6px;
+        background: #7c2d12;
+        color: white;
+        font-size: 24px;
+        font-weight: 700;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body data-state="safe">
@@ -59,6 +81,15 @@
         aria-pressed="false"
         onclick="document.body.dataset.state='armed'; document.getElementById('state').textContent='ARMED'; this.textContent='Armed'; this.setAttribute('aria-pressed', 'true');"
       >Arm</button>
+      <form
+        id="approval-form"
+        action="/submitted"
+        method="post"
+        onsubmit="event.preventDefault(); document.body.dataset.submission='submitted'; document.getElementById('approval-state').textContent='SUBMITTED';"
+      >
+        <div id="approval-state" role="status" aria-live="polite">DRAFT</div>
+        <button id="submit-button" type="submit" aria-label="Submit fixture">Submit</button>
+      </form>
     </main>
   </body>
 </html>

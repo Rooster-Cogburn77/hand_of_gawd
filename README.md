@@ -50,10 +50,16 @@ It starts a temporary `http://127.0.0.1` fixture server and exercises the browse
 python scripts/hog_selenium_smoke.py --output-dir runtime/hog_selenium_smoke
 ```
 
-If Firefox or geckodriver are not discoverable, pass them explicitly:
+To exercise the safe action, unsafe refusal, and approval-proceed paths in one run:
 
 ```powershell
-python scripts/hog_selenium_smoke.py --firefox-binary /usr/bin/firefox --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
+python scripts/hog_selenium_smoke.py --scenario all --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
+```
+
+If geckodriver is not discoverable, pass it explicitly:
+
+```powershell
+python scripts/hog_selenium_smoke.py --geckodriver /path/to/geckodriver --output-dir runtime/hog_selenium_smoke
 ```
 
 The runner writes `before.png`, `after.png`, and `hog_trace_selenium_smoke.jsonl`. It does not enable `file://` access in the policy gate. A passing run means the fixture was observed, the Arm button proposal passed the deterministic URL allowlist gate, Selenium acted through the browser adapter, the page changed to `ARMED`, and the deterministic verifier passed.
@@ -76,3 +82,9 @@ Sanitized result:
 - Trace event sequence: `policy_gate`, `action_execution`, `step_result`.
 
 Boundary: this proves the happy path for a safe browser action. Unsafe-target refusal and approve-then-proceed are separate live gates; they are not claimed by this proof.
+
+The next proof target is `--scenario all`, which must show:
+
+- `safe`: the harmless button is allowed and verified.
+- `unsafe-refusal`: the submit control is refused before execution.
+- `approval-proceed`: the same submit control proceeds only when the gate config carries an external approval for the current target ref.
