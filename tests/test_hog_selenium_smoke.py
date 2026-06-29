@@ -68,6 +68,8 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
     assert refusal["execution"] is None
     assert approved["gate"]["allowed"] is True
     assert approved["gate"]["gate_risk_class"] == "approval_granted"
+    assert approved["approval"]["approved"] is True
+    assert approved["approval"]["mode"] == "auto-approve"
     assert approved["execution"]["ok"] is True
     assert approved["verification"]["passed"] is True
 

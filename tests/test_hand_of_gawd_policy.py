@@ -162,6 +162,7 @@ def test_operator_approval_does_not_override_sensitive_field_gate():
 
     assert decision.allowed is False
     assert decision.gate_risk_class == "approval_required"
+    assert decision.checks["operator_approval_liftable"] is False
     assert decision.checks["target_sensitive"] is True
 
 
@@ -443,6 +444,46 @@ def test_gate_requires_approval_for_cross_origin_navigation_even_if_allowlisted(
     assert decision.allowed is False
     assert decision.gate_risk_class == "approval_required"
     assert decision.checks["destination_cross_origin"] is True
+    assert decision.checks["operator_approval_liftable"] is True
+    assert decision.checks["operator_approved_action"] is False
+
+
+def test_gate_allows_cross_origin_navigation_after_exact_approval():
+    proposal = _proposal(
+        proposed_action={
+            "type": "navigate",
+            "value": "https://other.example/page",
+        }
+    )
+    snapshot = _snapshot(url="https://safe.example/page")
+    config = GateConfig(
+        allowed_url_prefixes=("https://safe.example/", "https://other.example/")
+    )
+    approval_key = compute_approval_key(proposal, snapshot)
+
+    decision = evaluate_policy_gate(
+        proposal,
+        snapshot,
+        GateConfig(
+            allowed_url_prefixes=("https://safe.example/", "https://other.example/"),
+            approved_action_keys=(approval_key,),
+        ),
+    )
+
+    assert decision.allowed is True
+    assert decision.gate_risk_class == "approval_granted"
+    assert decision.checks["operator_approved_action"] is True
+
+    changed_destination = _proposal(
+        proposed_action={
+            "type": "navigate",
+            "value": "https://other.example/other",
+        }
+    )
+    changed_decision = evaluate_policy_gate(changed_destination, snapshot, config)
+
+    assert changed_decision.allowed is False
+    assert changed_decision.gate_risk_class == "approval_required"
 
 
 def test_gate_requires_current_url_allowlist():

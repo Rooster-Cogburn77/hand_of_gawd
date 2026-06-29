@@ -21,8 +21,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from hand_of_gawd.approval import (
+    approval_response_for_mode,
+    build_approval_request,
+    gate_config_with_approval,
+)
 from hand_of_gawd.loop import run_verified_step
-from hand_of_gawd.policy import GateConfig, compute_approval_key
+from hand_of_gawd.policy import GateConfig, evaluate_policy_gate
 from hand_of_gawd.selenium_snapshot import capture_snapshot
 from hand_of_gawd.trace import TraceRecorder
 
@@ -42,6 +47,12 @@ def main() -> int:
     parser.add_argument("--firefox-binary")
     parser.add_argument("--geckodriver")
     parser.add_argument("--headed", action="store_true")
+    parser.add_argument(
+        "--approval-mode",
+        choices=("auto-approve", "prompt", "deny"),
+        default="auto-approve",
+        help="approval source for the approval-proceed scenario",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -53,7 +64,13 @@ def main() -> int:
         headless=not args.headed,
     )
     try:
-        result = run_smoke(driver, Path(args.fixture), output_dir, scenario=args.scenario)
+        result = run_smoke(
+            driver,
+            Path(args.fixture),
+            output_dir,
+            scenario=args.scenario,
+            approval_mode=args.approval_mode,
+        )
     finally:
         driver.quit()
 
@@ -67,23 +84,32 @@ def run_smoke(
     output_dir: Path,
     *,
     scenario: str = "safe",
+    approval_mode: str = "auto-approve",
 ) -> dict[str, Any]:
     """Run the public safe-toggle proof with an already-open Selenium driver."""
 
     if scenario == "all":
         results = [
-            run_smoke(driver, fixture, output_dir / "safe", scenario="safe"),
+            run_smoke(
+                driver,
+                fixture,
+                output_dir / "safe",
+                scenario="safe",
+                approval_mode=approval_mode,
+            ),
             run_smoke(
                 driver,
                 fixture,
                 output_dir / "unsafe-refusal",
                 scenario="unsafe-refusal",
+                approval_mode=approval_mode,
             ),
             run_smoke(
                 driver,
                 fixture,
                 output_dir / "approval-proceed",
                 scenario="approval-proceed",
+                approval_mode=approval_mode,
             ),
         ]
         return {
@@ -104,6 +130,9 @@ def run_smoke(
             snapshot_id="s1",
             screenshot_path=output_dir / "before.png",
         )
+
+        trace_path = output_dir / f"hog_trace_selenium_{scenario}.jsonl"
+        trace = TraceRecorder(trace_path)
 
         if scenario == "safe":
             target_ref = _find_target_ref(before, target_id="arm-button")
@@ -143,21 +172,25 @@ def run_smoke(
                     {"type": "text_absent", "value": "DRAFT"},
                 ],
             )
-            approval_key = compute_approval_key(proposal, before)
-            gate_config = GateConfig(
-                allowed_url_prefixes=(served.base_url,),
-                approved_action_keys=(approval_key,),
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+            initial_gate = evaluate_policy_gate(proposal, before, gate_config)
+            approval_request = build_approval_request(proposal, before, initial_gate)
+            approval_response = approval_response_for_mode(
+                approval_request,
+                approval_mode,
             )
+            trace.record("approval_request", approval_request.to_dict())
+            trace.record("approval_response", approval_response.to_dict())
+            gate_config = gate_config_with_approval(gate_config, approval_response)
         else:
             raise ValueError(f"unsupported scenario: {scenario}")
 
-        trace_path = output_dir / f"hog_trace_selenium_{scenario}.jsonl"
         step = run_verified_step(
             driver,
             proposal,
             before,
             gate_config=gate_config,
-            trace=TraceRecorder(trace_path),
+            trace=trace,
             after_snapshot_id="s2",
         )
         driver.save_screenshot(str(output_dir / "after.png"))
@@ -177,6 +210,7 @@ def run_smoke(
             "execution": step.execution.to_dict() if step.execution else None,
             "verification": step.verification.to_dict() if step.verification else None,
             "after_snapshot_id": step.after_snapshot.get("snapshot_id") if step.after_snapshot else None,
+            "approval": approval_response.to_dict() if scenario == "approval-proceed" else None,
         }
 
 

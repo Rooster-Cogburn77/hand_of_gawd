@@ -16,6 +16,9 @@ def test_redact_trace_payload_redacts_sensitive_keys_recursively():
                 "target_ref": "e1",
                 "value": "private typed text",
             },
+            "approval": {
+                "action_value_preview": "private typed text",
+            },
             "element": {
                 "name": "Jane Doe",
                 "text": "jane@example.test",
@@ -28,6 +31,7 @@ def test_redact_trace_payload_redacts_sensitive_keys_recursively():
     assert redacted["nested"]["api_token"] == "[REDACTED]"
     assert redacted["nested"]["safe"] == "kept"
     assert redacted["proposed_action"]["value"] == "[REDACTED]"
+    assert redacted["approval"]["action_value_preview"] == "[REDACTED]"
     assert redacted["element"]["name"] == "[REDACTED]"
     assert redacted["element"]["text"] == "[REDACTED]"
     assert redacted["items"][0]["cookie"] == "[REDACTED]"

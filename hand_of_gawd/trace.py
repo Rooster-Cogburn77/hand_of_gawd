@@ -20,6 +20,7 @@ DEFAULT_REDACT_KEYWORDS = (
 )
 
 DEFAULT_REDACT_EXACT_KEYS = (
+    "action_value_preview",
     "aria_label",
     "label",
     "name",

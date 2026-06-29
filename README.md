@@ -16,7 +16,7 @@ This repository currently contains the Goal 1 browser substrate:
 - JSONL trace recording with redaction enabled by default.
 - A public synthetic Selenium smoke that exercises the Goal 1 loop end to end.
 
-This is not yet a production browser agent, not a password manager, and not an unrestricted desktop controller. Native desktop automation, OS pointer control, planner integration, credential handling, and approval UX are separate future gates.
+This is not yet a production browser agent, not a password manager, and not an unrestricted desktop controller. Native desktop automation, OS pointer control, planner integration, credential handling, persistent approval storage, and production approval UX are separate future gates.
 
 ## Safety Model
 
@@ -33,6 +33,8 @@ Each step is intended to follow this shape:
 7. Record a trace.
 
 The planner's `risk_class` is treated as advisory metadata only. The policy gate computes its own decision from URL allowlists, action type, target identity, form metadata, cross-origin navigation, sensitive fields, and approval-required keywords.
+
+When the gate returns a liftable `approval_required`, an operator can approve one exact stable action key. That key is derived from action type, a hash of the proposed action value when present, current URL, and stable target identity. Approval does not bypass blocked checks such as stale snapshots, missing targets, disabled targets, non-clickable targets, or sensitive fields.
 
 ## Public Status
 
@@ -55,6 +57,16 @@ To exercise the safe action, unsafe refusal, and approval-proceed paths in one r
 ```powershell
 python scripts/hog_selenium_smoke.py --scenario all --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
 ```
+
+To use the human approval prompt for the approval-proceed path:
+
+```powershell
+python scripts/hog_selenium_smoke.py --scenario approval-proceed --approval-mode prompt --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke_prompt
+```
+
+The prompt shows the gate reason, URL, goal, action type, stable target identity, expected deterministic result, and approval key. The operator must type `YES`; anything else leaves the action unapproved.
+
+Approval-proceed traces include `approval_request` and `approval_response` events before the final `policy_gate`, `action_execution`, and `step_result` events. Trace redaction hides visible element labels and action value previews by default.
 
 If geckodriver is not discoverable, pass it explicitly:
 

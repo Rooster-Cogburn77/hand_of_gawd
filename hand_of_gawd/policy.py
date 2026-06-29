@@ -162,12 +162,17 @@ def evaluate_policy_gate(
                 checks,
             )
         if checks["destination_cross_origin"]:
-            return _decision(
-                False,
-                "approval_required",
+            checks["target_approval_key"] = _approval_key(
+                action.type,
+                current_url,
+                None,
+                action.value,
+            )
+            return _approval_decision(
                 "navigation destination crosses origin",
                 parsed,
                 checks,
+                config,
             )
         return _decision(True, "safe", "allowlisted navigation", parsed, checks)
 
@@ -216,6 +221,7 @@ def evaluate_policy_gate(
         )
 
     if checks["target_sensitive"]:
+        checks["operator_approval_liftable"] = False
         return _decision(
             False,
             "approval_required",
@@ -262,10 +268,17 @@ def compute_approval_key(
         if isinstance(proposal, ActionProposal)
         else ActionProposal.from_mapping(proposal)
     )
+    current_url = str(snapshot.get("url") or "")
+    if parsed.proposed_action.type == "navigate":
+        return _approval_key(
+            parsed.proposed_action.type,
+            current_url,
+            None,
+            parsed.proposed_action.value,
+        )
     target = _find_target(snapshot, parsed.proposed_action.target_ref)
     if target is None:
         raise ValueError("target_ref was not found in current snapshot")
-    current_url = str(snapshot.get("url") or "")
     return _approval_key(
         parsed.proposed_action.type,
         current_url,
@@ -300,6 +313,7 @@ def _approval_decision(
     config: GateConfig,
 ) -> GateDecision:
     checks_with_approval = dict(checks)
+    checks_with_approval["operator_approval_liftable"] = True
     checks_with_approval["operator_approved_action"] = (
         checks_with_approval.get("target_approval_key") in config.approved_action_keys
     )
@@ -323,10 +337,10 @@ def _approval_decision(
 def _approval_key(
     action_type: str,
     current_url: str,
-    target: Mapping[str, Any],
+    target: Mapping[str, Any] | None,
     action_value: Any,
 ) -> str:
-    form = target.get("form")
+    form = target.get("form") if target is not None else None
     form_action = None
     if isinstance(form, Mapping):
         form_action = form.get("action")
@@ -334,7 +348,7 @@ def _approval_key(
         "action_type": action_type,
         "action_value_sha256": _action_value_hash(action_value),
         "current_url": current_url,
-        "target": {
+        "target": None if target is None else {
             "id": target.get("id"),
             "tag": target.get("tag"),
             "role": target.get("role"),
