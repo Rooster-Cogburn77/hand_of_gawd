@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -72,7 +74,7 @@ class GateConfig:
     allow_file_urls: bool = False
     require_snapshot_freshness: bool = True
     approval_keywords: tuple[str, ...] = APPROVAL_KEYWORDS
-    approved_target_refs: tuple[str, ...] = ()
+    approved_action_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,12 +190,22 @@ def evaluate_policy_gate(
     )
     checks["target_form_submit"] = bool(target.get("is_submit"))
     checks["target_cross_origin"] = _target_cross_origin(current_url, target)
+    checks["target_approval_key"] = _approval_key(action.type, current_url, target)
 
     if not checks["target_visible"] or not checks["target_enabled"]:
         return _decision(
             False,
             "blocked",
             "target is not visible and enabled",
+            parsed,
+            checks,
+        )
+
+    if action.type == "click" and not checks["target_clickable"]:
+        return _decision(
+            False,
+            "blocked",
+            "target is not topmost-clickable in the snapshot",
             parsed,
             checks,
         )
@@ -231,16 +243,25 @@ def evaluate_policy_gate(
             config,
         )
 
-    if action.type == "click" and not checks["target_clickable"]:
-        return _decision(
-            False,
-            "blocked",
-            "target is not topmost-clickable in the snapshot",
-            parsed,
-            checks,
-        )
-
     return _decision(True, "safe", "deterministic gate passed", parsed, checks)
+
+
+def compute_approval_key(
+    proposal: ActionProposal | Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+) -> str:
+    """Return the stable approval key for the proposal's current target."""
+
+    parsed = (
+        proposal
+        if isinstance(proposal, ActionProposal)
+        else ActionProposal.from_mapping(proposal)
+    )
+    target = _find_target(snapshot, parsed.proposed_action.target_ref)
+    if target is None:
+        raise ValueError("target_ref was not found in current snapshot")
+    current_url = str(snapshot.get("url") or "")
+    return _approval_key(parsed.proposed_action.type, current_url, target)
 
 
 def _decision(
@@ -268,12 +289,11 @@ def _approval_decision(
     checks: Mapping[str, Any],
     config: GateConfig,
 ) -> GateDecision:
-    action = proposal.proposed_action
     checks_with_approval = dict(checks)
-    checks_with_approval["operator_approved_target"] = (
-        action.target_ref in config.approved_target_refs
+    checks_with_approval["operator_approved_action"] = (
+        checks_with_approval.get("target_approval_key") in config.approved_action_keys
     )
-    if checks_with_approval["operator_approved_target"]:
+    if checks_with_approval["operator_approved_action"]:
         return _decision(
             True,
             "approval_granted",
@@ -288,6 +308,31 @@ def _approval_decision(
         proposal,
         checks_with_approval,
     )
+
+
+def _approval_key(action_type: str, current_url: str, target: Mapping[str, Any]) -> str:
+    form = target.get("form")
+    form_action = None
+    if isinstance(form, Mapping):
+        form_action = form.get("action")
+    identity = {
+        "action_type": action_type,
+        "current_url": current_url,
+        "target": {
+            "id": target.get("id"),
+            "tag": target.get("tag"),
+            "role": target.get("role"),
+            "name": target.get("name"),
+            "text": target.get("text"),
+            "type": target.get("type"),
+            "href": target.get("href"),
+            "form_action": form_action,
+            "is_submit": bool(target.get("is_submit")),
+        },
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"hog-approval-v1:{digest}"
 
 
 def _find_target(snapshot: Mapping[str, Any], target_ref: str | None) -> Mapping[str, Any] | None:

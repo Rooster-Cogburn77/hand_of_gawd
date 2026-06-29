@@ -87,4 +87,4 @@ The next proof target is `--scenario all`, which must show:
 
 - `safe`: the harmless button is allowed and verified.
 - `unsafe-refusal`: the submit control is refused before execution.
-- `approval-proceed`: the same submit control proceeds only when the gate config carries an external approval for the current target ref.
+- `approval-proceed`: the same submit control proceeds only when the gate config carries an external approval key for the current action and stable target identity.

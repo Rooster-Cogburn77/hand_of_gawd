@@ -22,7 +22,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from hand_of_gawd.loop import run_verified_step
-from hand_of_gawd.policy import GateConfig
+from hand_of_gawd.policy import GateConfig, compute_approval_key
 from hand_of_gawd.selenium_snapshot import capture_snapshot
 from hand_of_gawd.trace import TraceRecorder
 
@@ -143,9 +143,10 @@ def run_smoke(
                     {"type": "text_absent", "value": "DRAFT"},
                 ],
             )
+            approval_key = compute_approval_key(proposal, before)
             gate_config = GateConfig(
                 allowed_url_prefixes=(served.base_url,),
-                approved_target_refs=(target_ref,),
+                approved_action_keys=(approval_key,),
             )
         else:
             raise ValueError(f"unsupported scenario: {scenario}")

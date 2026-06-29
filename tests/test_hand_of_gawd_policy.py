@@ -1,4 +1,4 @@
-from hand_of_gawd.policy import GateConfig, evaluate_policy_gate
+from hand_of_gawd.policy import GateConfig, compute_approval_key, evaluate_policy_gate
 
 
 def _snapshot(**overrides):
@@ -157,7 +157,7 @@ def test_operator_approval_does_not_override_sensitive_field_gate():
     decision = evaluate_policy_gate(
         proposal,
         snapshot,
-        GateConfig(allow_file_urls=True, approved_target_refs=("pw",)),
+        GateConfig(allow_file_urls=True, approved_action_keys=("hog-approval-v1:any",)),
     )
 
     assert decision.allowed is False
@@ -201,7 +201,8 @@ def test_gate_requires_approval_for_submit_control_without_label_keyword():
     assert decision.allowed is False
     assert decision.gate_risk_class == "approval_required"
     assert decision.checks["target_form_submit"] is True
-    assert decision.checks["operator_approved_target"] is False
+    assert decision.checks["operator_approved_action"] is False
+    assert decision.checks["target_approval_key"].startswith("hog-approval-v1:")
 
 
 def test_gate_allows_submit_control_after_external_operator_approval():
@@ -230,17 +231,113 @@ def test_gate_allows_submit_control_after_external_operator_approval():
             "target_ref": "submit",
         }
     )
+    approval_key = compute_approval_key(proposal, snapshot)
 
     decision = evaluate_policy_gate(
         proposal,
         snapshot,
-        GateConfig(allow_file_urls=True, approved_target_refs=("submit",)),
+        GateConfig(allow_file_urls=True, approved_action_keys=(approval_key,)),
     )
 
     assert decision.allowed is True
     assert decision.gate_risk_class == "approval_granted"
     assert decision.checks["target_form_submit"] is True
-    assert decision.checks["operator_approved_target"] is True
+    assert decision.checks["operator_approved_action"] is True
+
+
+def test_approval_key_does_not_authorize_reused_ref_with_different_identity():
+    original_snapshot = _snapshot(
+        elements=[
+            {
+                "ref": "submit",
+                "id": "submit-button",
+                "tag": "button",
+                "role": "button",
+                "name": "Submit fixture",
+                "text": "Submit",
+                "is_submit": True,
+                "form": {
+                    "action": "file:///tmp/hand-of-gawd/submitted.html",
+                    "method": "post",
+                },
+                "enabled": True,
+                "visible": True,
+                "clickable": True,
+            }
+        ]
+    )
+    proposal = _proposal(
+        proposed_action={
+            "type": "click",
+            "target_ref": "submit",
+        }
+    )
+    approval_key = compute_approval_key(proposal, original_snapshot)
+    changed_snapshot = _snapshot(
+        elements=[
+            {
+                "ref": "submit",
+                "id": "delete-button",
+                "tag": "button",
+                "role": "button",
+                "name": "Delete account",
+                "text": "Delete",
+                "is_submit": True,
+                "form": {
+                    "action": "file:///tmp/hand-of-gawd/delete.html",
+                    "method": "post",
+                },
+                "enabled": True,
+                "visible": True,
+                "clickable": True,
+            }
+        ]
+    )
+
+    decision = evaluate_policy_gate(
+        proposal,
+        changed_snapshot,
+        GateConfig(allow_file_urls=True, approved_action_keys=(approval_key,)),
+    )
+
+    assert decision.allowed is False
+    assert decision.gate_risk_class == "approval_required"
+    assert decision.checks["operator_approved_action"] is False
+
+
+def test_operator_approval_does_not_override_clickability_gate():
+    snapshot = _snapshot(
+        elements=[
+            {
+                "ref": "submit",
+                "tag": "button",
+                "role": "button",
+                "name": "Submit",
+                "text": "Submit",
+                "is_submit": True,
+                "enabled": True,
+                "visible": True,
+                "clickable": False,
+            }
+        ]
+    )
+    proposal = _proposal(
+        proposed_action={
+            "type": "click",
+            "target_ref": "submit",
+        }
+    )
+    approval_key = compute_approval_key(proposal, snapshot)
+
+    decision = evaluate_policy_gate(
+        proposal,
+        snapshot,
+        GateConfig(allow_file_urls=True, approved_action_keys=(approval_key,)),
+    )
+
+    assert decision.allowed is False
+    assert decision.gate_risk_class == "blocked"
+    assert decision.reason == "target is not topmost-clickable in the snapshot"
 
 
 def test_gate_requires_approval_for_cross_origin_link():
