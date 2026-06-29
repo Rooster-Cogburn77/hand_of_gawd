@@ -59,3 +59,20 @@ python scripts/hog_selenium_smoke.py --firefox-binary /usr/bin/firefox --geckodr
 The runner writes `before.png`, `after.png`, and `hog_trace_selenium_smoke.jsonl`. It does not enable `file://` access in the policy gate. A passing run means the fixture was observed, the Arm button proposal passed the deterministic URL allowlist gate, Selenium acted through the browser adapter, the page changed to `ARMED`, and the deterministic verifier passed.
 
 The integration test skips when Selenium, Firefox, or geckodriver are unavailable; the real evidence artifact is the runner output from an environment with those tools installed.
+
+On snap-based Firefox installs, do not pass `/usr/bin/firefox` as `--firefox-binary`; that path may be a wrapper and geckodriver can reject it as not being a Firefox executable. In that case, pass only `--geckodriver` and let geckodriver locate Firefox.
+
+## Current Proof
+
+The Selenium smoke has passed once on a real Firefox/geckodriver environment at repo commit `b75f75f`.
+
+Sanitized result:
+
+- Fixture served from a temporary `http://127.0.0.1:<port>/index.html` URL.
+- Policy gate used the loopback URL allowlist; `file://` access was not enabled.
+- Gate allowed the safe button: no sensitive field, no form submit, no cross-origin target, no approval keyword, and target was visible/clickable.
+- Executor clicked the identity-checked `arm-button` element through Selenium.
+- Deterministic verifier passed: armed state present and safe state absent.
+- Trace event sequence: `policy_gate`, `action_execution`, `step_result`.
+
+Boundary: this proves the happy path for a safe browser action. Unsafe-target refusal and approve-then-proceed are separate live gates; they are not claimed by this proof.
