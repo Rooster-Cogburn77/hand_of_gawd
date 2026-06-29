@@ -52,7 +52,7 @@ It starts a temporary `http://127.0.0.1` fixture server and exercises the browse
 python scripts/hog_selenium_smoke.py --output-dir runtime/hog_selenium_smoke
 ```
 
-To exercise the safe action, unsafe refusal, and approval-proceed paths in one run:
+To exercise the safe action, unsafe refusal, approval-proceed, stale-state, identity-mismatch, and varied-snapshot paths in one run:
 
 ```powershell
 python scripts/hog_selenium_smoke.py --scenario all --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke
@@ -74,7 +74,7 @@ If geckodriver is not discoverable, pass it explicitly:
 python scripts/hog_selenium_smoke.py --geckodriver /path/to/geckodriver --output-dir runtime/hog_selenium_smoke
 ```
 
-The runner writes `before.png`, `after.png`, and `hog_trace_selenium_smoke.jsonl`. It does not enable `file://` access in the policy gate. A passing run means the fixture was observed, the Arm button proposal passed the deterministic URL allowlist gate, Selenium acted through the browser adapter, the page changed to `ARMED`, and the deterministic verifier passed.
+The runner writes `before.png`, `after.png`, and `hog_trace_selenium_<scenario>.jsonl`. It does not enable `file://` access in the policy gate. A passing safe run means the fixture was observed, the Arm button proposal passed the deterministic URL allowlist gate, Selenium acted through the browser adapter, the page changed to `ARMED`, and the deterministic verifier passed.
 
 The integration test skips when Selenium, Firefox, or geckodriver are unavailable; the real evidence artifact is the runner output from an environment with those tools installed.
 
@@ -94,3 +94,9 @@ Sanitized result:
 - Approval keys are `hog-approval-v1:<sha256>` values derived from action type, a hash of the proposed action value when present, current URL, and stable target identity, not ephemeral snapshot refs such as `e5`.
 
 Boundary: this proves the synthetic browser-Linux safety loop for safe action, unapproved risky-action refusal, approved risky-action execution, post-action verification, and trace evidence. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
+
+Additional smoke scenarios:
+
+- `stale-state`: proves a proposal with stale `state_seen` is blocked before execution.
+- `identity-mismatch`: proves a page shift between snapshot and execution is refused by the live element identity re-check before clicking the impostor.
+- `varied-snapshot`: observes a second synthetic fixture with iframe and shadow DOM content, captures the top-level controls, and records `iframes_not_traversed` / `shadow_dom_not_traversed` warnings instead of pretending those subtrees were covered.

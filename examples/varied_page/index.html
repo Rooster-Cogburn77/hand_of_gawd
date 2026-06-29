@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>hand_of_gawd varied snapshot fixture</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: #f8fafc;
+        color: #111827;
+      }
+
+      main {
+        padding: 56px 72px;
+      }
+
+      h1 {
+        margin: 0 0 28px;
+        font-size: 30px;
+      }
+
+      button,
+      input {
+        display: block;
+        margin: 18px 0;
+        font-size: 20px;
+      }
+
+      #main-action {
+        width: 220px;
+        height: 60px;
+      }
+
+      iframe {
+        width: 360px;
+        height: 110px;
+        border: 2px solid #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Varied Snapshot Fixture</h1>
+      <button id="main-action" type="button">Main Action</button>
+      <label for="email-field">Email</label>
+      <input id="email-field" type="email" autocomplete="email" value="person@example.test">
+      <div id="shadow-host" role="group" aria-label="Shadow host"></div>
+      <iframe
+        id="embedded-frame"
+        title="Embedded controls"
+        srcdoc="<!doctype html><html><body><button id='iframe-button'>Iframe Action</button></body></html>"
+      ></iframe>
+    </main>
+    <script>
+      const host = document.getElementById("shadow-host");
+      const root = host.attachShadow({mode: "open"});
+      root.innerHTML = "<button id='shadow-button'>Shadow Action</button>";
+    </script>
+  </body>
+</html>

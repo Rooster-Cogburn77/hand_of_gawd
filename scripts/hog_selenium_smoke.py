@@ -1,6 +1,6 @@
 """Run the Goal 1 hand_of_gawd Selenium integration smoke.
 
-The smoke uses only the public synthetic fixture under examples/safe_toggle.
+The smoke uses public synthetic fixtures under examples/.
 It exercises observe -> proposal -> deterministic gate -> Selenium act ->
 observe -> deterministic verify -> trace against a local loopback HTTP page.
 """
@@ -33,6 +33,15 @@ from hand_of_gawd.trace import TraceRecorder
 
 
 DEFAULT_FIXTURE = REPO_ROOT / "examples" / "safe_toggle" / "index.html"
+DEFAULT_VARIED_FIXTURE = REPO_ROOT / "examples" / "varied_page" / "index.html"
+ACTION_SCENARIOS = (
+    "safe",
+    "unsafe-refusal",
+    "approval-proceed",
+    "stale-state",
+    "identity-mismatch",
+)
+SCENARIOS = (*ACTION_SCENARIOS, "varied-snapshot", "all")
 
 
 def main() -> int:
@@ -41,7 +50,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default=str(REPO_ROOT / "runtime" / "hog_selenium_smoke"))
     parser.add_argument(
         "--scenario",
-        choices=("safe", "unsafe-refusal", "approval-proceed", "all"),
+        choices=SCENARIOS,
         default="safe",
     )
     parser.add_argument("--firefox-binary")
@@ -109,6 +118,27 @@ def run_smoke(
                 fixture,
                 output_dir / "approval-proceed",
                 scenario="approval-proceed",
+                approval_mode=approval_mode,
+            ),
+            run_smoke(
+                driver,
+                fixture,
+                output_dir / "stale-state",
+                scenario="stale-state",
+                approval_mode=approval_mode,
+            ),
+            run_smoke(
+                driver,
+                fixture,
+                output_dir / "identity-mismatch",
+                scenario="identity-mismatch",
+                approval_mode=approval_mode,
+            ),
+            run_smoke(
+                driver,
+                DEFAULT_VARIED_FIXTURE,
+                output_dir / "varied-snapshot",
+                scenario="varied-snapshot",
                 approval_mode=approval_mode,
             ),
         ]
@@ -182,6 +212,73 @@ def run_smoke(
             trace.record("approval_request", approval_request.to_dict())
             trace.record("approval_response", approval_response.to_dict())
             gate_config = gate_config_with_approval(gate_config, approval_response)
+        elif scenario == "stale-state":
+            target_ref = _find_target_ref(before, target_id="arm-button")
+            proposal = _proposal(
+                goal="prove stale planner state is blocked before execution",
+                state_seen="stale-snapshot",
+                target_ref=target_ref,
+                reason="Try to click the public synthetic Arm button from stale state.",
+                assertions=[
+                    {"type": "text_present", "value": "ARMED"},
+                    {"type": "text_absent", "value": "SAFE"},
+                ],
+            )
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+        elif scenario == "identity-mismatch":
+            target_ref = _find_target_ref(before, target_id="arm-button")
+            proposal = _proposal(
+                goal="prove live identity mismatch blocks a shifted target",
+                state_seen=before["snapshot_id"],
+                target_ref=target_ref,
+                reason="Try to click Arm after another element covers its center.",
+                assertions=[
+                    {"type": "text_present", "value": "ARMED"},
+                    {"type": "text_absent", "value": "SAFE"},
+                ],
+            )
+            gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
+            _cover_arm_button_with_impostor(driver)
+        elif scenario == "varied-snapshot":
+            trace.record(
+                "snapshot_coverage",
+                {
+                    "snapshot_id": before.get("snapshot_id"),
+                    "warnings": before.get("warnings", []),
+                    "element_ids": [
+                        element.get("id")
+                        for element in before.get("elements", [])
+                        if element.get("id")
+                    ],
+                },
+            )
+            driver.save_screenshot(str(output_dir / "after.png"))
+            passed = _varied_snapshot_passed(before)
+            return {
+                "scenario": scenario,
+                "passed": passed,
+                "fixture": str(fixture),
+                "fixture_url": served.url,
+                "allow_url_prefix": served.base_url,
+                "target_ref": None,
+                "before_screenshot": str(output_dir / "before.png"),
+                "after_screenshot": str(output_dir / "after.png"),
+                "trace": str(trace_path),
+                "snapshot": {
+                    "warnings": before.get("warnings", []),
+                    "element_count": len(before.get("elements", [])),
+                    "element_ids": [
+                        element.get("id")
+                        for element in before.get("elements", [])
+                        if element.get("id")
+                    ],
+                },
+                "gate": None,
+                "execution": None,
+                "verification": None,
+                "after_snapshot_id": None,
+                "approval": None,
+            }
         else:
             raise ValueError(f"unsupported scenario: {scenario}")
 
@@ -269,7 +366,73 @@ def _scenario_passed(scenario: str, step: Any) -> bool:
             and step.after_snapshot is None
             and step.verification is None
         )
+    if scenario == "stale-state":
+        return (
+            step.gate.allowed is False
+            and step.gate.gate_risk_class == "blocked"
+            and "state_seen" in step.gate.reason
+            and step.execution is None
+            and step.after_snapshot is None
+            and step.verification is None
+        )
+    if scenario == "identity-mismatch":
+        return (
+            step.gate.allowed is True
+            and step.execution is not None
+            and step.execution.ok is False
+            and step.execution.reason == "target_identity_mismatch"
+            and step.execution.adapter_result.get("target", {}).get("id") == "impostor-button"
+        )
     return bool(step.passed)
+
+
+def _cover_arm_button_with_impostor(driver: Any) -> None:
+    driver.execute_script(
+        """
+        const arm = document.getElementById("arm-button");
+        const rect = arm.getBoundingClientRect();
+        const impostor = document.createElement("button");
+        impostor.id = "impostor-button";
+        impostor.type = "button";
+        impostor.setAttribute("aria-label", "Delete account");
+        impostor.textContent = "Delete";
+        Object.assign(impostor.style, {
+          position: "fixed",
+          left: rect.left + "px",
+          top: rect.top + "px",
+          width: rect.width + "px",
+          height: rect.height + "px",
+          zIndex: "999999",
+          border: "0",
+          background: "#991b1b",
+          color: "white",
+          fontSize: "28px",
+          fontWeight: "700"
+        });
+        impostor.onclick = () => {
+          document.body.dataset.impostorClicked = "1";
+          document.getElementById("state").textContent = "IMPOSTOR";
+        };
+        document.body.appendChild(impostor);
+        """
+    )
+
+
+def _varied_snapshot_passed(snapshot: dict[str, Any]) -> bool:
+    warnings = set(snapshot.get("warnings", []))
+    ids = {
+        element.get("id")
+        for element in snapshot.get("elements", [])
+        if element.get("id")
+    }
+    return (
+        "iframes_not_traversed" in warnings
+        and "shadow_dom_not_traversed" in warnings
+        and "main-action" in ids
+        and "email-field" in ids
+        and "iframe-button" not in ids
+        and "shadow-button" not in ids
+    )
 
 
 class _ServedFixture:

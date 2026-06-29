@@ -57,9 +57,12 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
         "safe",
         "unsafe-refusal",
         "approval-proceed",
+        "stale-state",
+        "identity-mismatch",
+        "varied-snapshot",
     ]
 
-    safe, refusal, approved = result["scenarios"]
+    safe, refusal, approved, stale, mismatch, varied = result["scenarios"]
     assert safe["gate"]["allowed"] is True
     assert safe["execution"]["ok"] is True
     assert safe["verification"]["passed"] is True
@@ -72,11 +75,25 @@ def test_public_safe_toggle_selenium_smoke(tmp_path):
     assert approved["approval"]["mode"] == "auto-approve"
     assert approved["execution"]["ok"] is True
     assert approved["verification"]["passed"] is True
+    assert stale["gate"]["allowed"] is False
+    assert stale["gate"]["gate_risk_class"] == "blocked"
+    assert stale["execution"] is None
+    assert mismatch["gate"]["allowed"] is True
+    assert mismatch["execution"]["ok"] is False
+    assert mismatch["execution"]["reason"] == "target_identity_mismatch"
+    assert varied["snapshot"]["warnings"] == [
+        "iframes_not_traversed",
+        "shadow_dom_not_traversed",
+    ]
+    assert "main-action" in varied["snapshot"]["element_ids"]
+    assert "iframe-button" not in varied["snapshot"]["element_ids"]
+    assert "shadow-button" not in varied["snapshot"]["element_ids"]
 
     for scenario in result["scenarios"]:
         assert scenario["fixture_url"].startswith("http://127.0.0.1:")
         assert scenario["allow_url_prefix"].startswith("http://127.0.0.1:")
-        assert scenario["target_ref"]
+        if scenario["scenario"] != "varied-snapshot":
+            assert scenario["target_ref"]
         assert Path(scenario["trace"]).exists()
         assert Path(scenario["before_screenshot"]).exists()
         assert Path(scenario["after_screenshot"]).exists()
