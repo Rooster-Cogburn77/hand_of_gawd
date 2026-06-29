@@ -70,21 +70,15 @@ On snap-based Firefox installs, do not pass `/usr/bin/firefox` as `--firefox-bin
 
 ## Current Proof
 
-The Selenium smoke has passed once on a real Firefox/geckodriver environment at repo commit `b75f75f`.
+The Selenium smoke has passed the full `--scenario all` proof on a real Firefox/geckodriver environment at repo commit `e7e2e45`.
 
 Sanitized result:
 
-- Fixture served from a temporary `http://127.0.0.1:<port>/index.html` URL.
-- Policy gate used the loopback URL allowlist; `file://` access was not enabled.
-- Gate allowed the safe button: no sensitive field, no form submit, no cross-origin target, no approval keyword, and target was visible/clickable.
-- Executor clicked the identity-checked `arm-button` element through Selenium.
-- Deterministic verifier passed: armed state present and safe state absent.
-- Trace event sequence: `policy_gate`, `action_execution`, `step_result`.
+- Fixture served from temporary `http://127.0.0.1:<port>/index.html` URLs.
+- Policy gate used loopback URL allowlists; `file://` access was not enabled.
+- `safe`: the harmless `arm-button` was allowed, identity-checked, executed, and verified with armed state present and safe state absent.
+- `unsafe-refusal`: the form-submit target was refused before execution with `gate_risk_class: approval_required`, `operator_approved_action: false`, and trace sequence `policy_gate`, `step_result`.
+- `approval-proceed`: the same submit target proceeded only with `operator_approved_action: true` from an external stable action key, then verified submitted state present and draft state absent.
+- Approval keys are `hog-approval-v1:<sha256>` values derived from action type, current URL, and stable target identity, not ephemeral snapshot refs such as `e5`.
 
-Boundary: this proves the happy path for a safe browser action. Unsafe-target refusal and approve-then-proceed are separate live gates; they are not claimed by this proof.
-
-The next proof target is `--scenario all`, which must show:
-
-- `safe`: the harmless button is allowed and verified.
-- `unsafe-refusal`: the submit control is refused before execution.
-- `approval-proceed`: the same submit control proceeds only when the gate config carries an external approval key for the current action and stable target identity.
+Boundary: this proves the synthetic browser-Linux safety loop for safe action, unapproved risky-action refusal, approved risky-action execution, post-action verification, and trace evidence. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
