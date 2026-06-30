@@ -43,7 +43,7 @@ The approval store is a local trust anchor. Anyone who can write the store can a
 
 ## Proof Status
 
-**Live-proven** on a real Firefox/geckodriver environment (synthetic, browser-Linux; commits `88044a9`, `6cf8684`, and `9593b74`):
+**Live-proven** on a real Firefox/geckodriver environment (synthetic, browser-Linux; commits `88044a9`, `6cf8684`, `9593b74`, and `3ad046b`):
 
 - `safe` - a harmless control is allowed, identity-checked, executed, and verified.
 - `unsafe-refusal` - a form-submit target is refused before execution (`approval_required`, `operator_approved_action: false`, trace `policy_gate` -> `step_result`).
@@ -54,10 +54,16 @@ The approval store is a local trust anchor. Anyone who can write the store can a
 - `shadow-action` - open-shadow-root control: observe, gate, identity-check, click, verify.
 - `varied-snapshot` - same-origin iframe and open-shadow-root controls are traversed and included in the snapshot.
 - `blocked-iframe-snapshot` - an opaque sandboxed iframe must report `iframes_not_traversed`, proving blocked subtrees are warned about instead of silently claimed.
+- `approval-store-write` - a fixed-port approval-proceed run writes a redacted JSONL approval record and exposes the exact approved key through `ApprovalStore.approved_keys()`.
+- `approval-store-grant` - a second fixed-port run with caller denial still proceeds from the stored exact key (`mode: store`) and does not append a new approval record.
+- `approval-store-url-no-inherit` - the same synthetic action on a different loopback port produces a different key and is refused before execution.
+- `approval-store-revoke` - a same-key denial appended with `--ignore-approval-store-grants` revokes the stored grant; the final store readback has no approved keys.
+
+The approval-store proof above used HOMELAB store path `/home/bmoore_77/nodehome/runtime/hand_of_gawd-smoke-b75f75f/runtime/hog_approval_store_live_3ad046b_ca28d11/approvals.jsonl` and output directories `/home/bmoore_77/nodehome/runtime/hand_of_gawd-smoke-b75f75f/runtime/hog_approval_store_live_3ad046b_ca28d11/first-approval`, `/home/bmoore_77/nodehome/runtime/hand_of_gawd-smoke-b75f75f/runtime/hog_approval_store_live_3ad046b_ca28d11/store-grant`, `/home/bmoore_77/nodehome/runtime/hand_of_gawd-smoke-b75f75f/runtime/hog_approval_store_live_3ad046b_ca28d11/url-no-inherit`, and `/home/bmoore_77/nodehome/runtime/hand_of_gawd-smoke-b75f75f/runtime/hog_approval_store_live_3ad046b_ca28d11/deny-revoke`. Store readbacks showed `record_count=1` with approved key `hog-approval-v1:db5ebddcd43f5482d4f50f7cad226d2967b656b8467b950ea565035330640cb4` after the first approval, then `record_count=3` and `approved_keys=()` after same-key denial.
 
 Approval keys are `hog-approval-v1:<sha256>` values derived from action type, a hash of the proposed action value when present, current URL, and stable target identity - not ephemeral snapshot refs such as `e5`.
 
-Boundary: the live-proven tier covers the synthetic browser-Linux safety loop only. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
+Boundary: the live-proven tier covers the synthetic browser-Linux safety loop only. Approval-store persistence is live-proven for the fixed-port synthetic click/form-submit action; changed typed-value no-inherit remains unit-covered until a type-action smoke exists. Native desktop automation, OS pointer control, planner integration, credential handling, and production use remain separate future gates.
 
 ## Selenium Smoke
 
