@@ -81,6 +81,8 @@ Persist approval records to a local JSONL store:
 python scripts/hog_selenium_smoke.py --scenario approval-proceed --approval-mode prompt --approval-store runtime/hog_approvals.jsonl --geckodriver /snap/bin/geckodriver --output-dir runtime/hog_selenium_smoke_prompt
 ```
 
+Use `--fixture-port <port>` when testing persisted approvals across multiple runs; approval keys include the current URL, so a stable proof needs a stable loopback port. Use `--ignore-approval-store-grants` only for negative/revocation tests where the runner must append a fresh denial for an already-approved exact key.
+
 The prompt shows the gate reason, URL, goal, action type, stable target identity, expected deterministic result, and approval key. The operator must type `YES`; anything else leaves the action unapproved. Approval-proceed traces include `approval_request` and `approval_response` events before the final `policy_gate`, `action_execution`, and `step_result` events. When `--approval-store` is used, the runner also writes an `approval_record` event and appends the same record to the JSONL store. Trace redaction hides visible element labels and action value previews by default.
 
 The runner writes `before.png`, `after.png`, and `hog_trace_selenium_<scenario>.jsonl`. The integration test skips when Selenium, Firefox, or geckodriver are unavailable; the real evidence artifact is the runner output from an environment with those tools installed.

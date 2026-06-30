@@ -12,6 +12,26 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_selenium_smoke_help_documents_persistence_controls():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "hog_selenium_smoke.py"),
+            "--help",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert "--approval-store" in completed.stdout
+    assert "--fixture-port" in completed.stdout
+    assert "--ignore-approval-store-grants" in completed.stdout
+
+
 @pytest.mark.integration
 def test_public_safe_toggle_selenium_smoke(tmp_path):
     if importlib.util.find_spec("selenium") is None:

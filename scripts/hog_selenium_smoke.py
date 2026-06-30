@@ -72,6 +72,17 @@ def main() -> int:
         "--approval-store",
         help="optional local JSONL approval store for exact stable action keys",
     )
+    parser.add_argument(
+        "--fixture-port",
+        type=int,
+        default=0,
+        help="loopback fixture port; default 0 asks the OS for a free port",
+    )
+    parser.add_argument(
+        "--ignore-approval-store-grants",
+        action="store_true",
+        help="record a fresh approval response without preloading stored grants",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -90,6 +101,8 @@ def main() -> int:
             scenario=args.scenario,
             approval_mode=args.approval_mode,
             approval_store=Path(args.approval_store) if args.approval_store else None,
+            fixture_port=args.fixture_port,
+            ignore_approval_store_grants=args.ignore_approval_store_grants,
         )
     finally:
         driver.quit()
@@ -106,6 +119,8 @@ def run_smoke(
     scenario: str = "safe",
     approval_mode: str = "auto-approve",
     approval_store: Path | None = None,
+    fixture_port: int = 0,
+    ignore_approval_store_grants: bool = False,
 ) -> dict[str, Any]:
     """Run the public safe-toggle proof with an already-open Selenium driver."""
 
@@ -118,6 +133,8 @@ def run_smoke(
                 scenario="safe",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -126,6 +143,8 @@ def run_smoke(
                 scenario="unsafe-refusal",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -134,6 +153,8 @@ def run_smoke(
                 scenario="approval-proceed",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -142,6 +163,8 @@ def run_smoke(
                 scenario="stale-state",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -150,6 +173,8 @@ def run_smoke(
                 scenario="identity-mismatch",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -158,6 +183,8 @@ def run_smoke(
                 scenario="iframe-action",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -166,6 +193,8 @@ def run_smoke(
                 scenario="shadow-action",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -174,6 +203,8 @@ def run_smoke(
                 scenario="varied-snapshot",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
             run_smoke(
                 driver,
@@ -182,6 +213,8 @@ def run_smoke(
                 scenario="blocked-iframe-snapshot",
                 approval_mode=approval_mode,
                 approval_store=approval_store,
+                fixture_port=fixture_port,
+                ignore_approval_store_grants=ignore_approval_store_grants,
             ),
         ]
         return {
@@ -193,7 +226,7 @@ def run_smoke(
     fixture = fixture.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with _serve_fixture(fixture) as served:
+    with _serve_fixture(fixture, port=fixture_port) as served:
         driver.set_window_size(900, 600)
         driver.get(served.url)
 
@@ -248,7 +281,7 @@ def run_smoke(
                 ],
             )
             gate_config = GateConfig(allowed_url_prefixes=(served.base_url,))
-            if store is not None:
+            if store is not None and not ignore_approval_store_grants:
                 gate_config = gate_config_with_approval_store(gate_config, store)
             initial_gate = evaluate_policy_gate(proposal, before, gate_config)
             if initial_gate.allowed and initial_gate.gate_risk_class == "approval_granted":
@@ -370,6 +403,8 @@ def run_smoke(
                 "after_snapshot_id": None,
                 "approval": None,
                 "approval_store": str(approval_store) if approval_store else None,
+                "fixture_port": fixture_port,
+                "ignore_approval_store_grants": ignore_approval_store_grants,
                 "approval_record": None,
             }
         else:
@@ -402,6 +437,8 @@ def run_smoke(
             "after_snapshot_id": step.after_snapshot.get("snapshot_id") if step.after_snapshot else None,
             "approval": approval_response.to_dict() if scenario == "approval-proceed" else None,
             "approval_store": str(approval_store) if approval_store else None,
+            "fixture_port": fixture_port,
+            "ignore_approval_store_grants": ignore_approval_store_grants,
             "approval_record": approval_record.to_dict() if approval_record else None,
         }
 
@@ -555,13 +592,17 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
         return
 
 
+class _FixtureHTTPServer(http.server.ThreadingHTTPServer):
+    allow_reuse_address = True
+
+
 @contextlib.contextmanager
-def _serve_fixture(fixture: Path) -> Iterator[_ServedFixture]:
+def _serve_fixture(fixture: Path, *, port: int = 0) -> Iterator[_ServedFixture]:
     if not fixture.is_file():
         raise FileNotFoundError(f"fixture not found: {fixture}")
 
     handler = functools.partial(_QuietHandler, directory=str(fixture.parent))
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = _FixtureHTTPServer(("127.0.0.1", port), handler)
     host, port = server.server_address
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
